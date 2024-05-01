@@ -56,6 +56,11 @@ packages/
 ##########
 .vscode
 
+#############
+# JetBrains #
+#############
+.idea
+
 ###############
 # Local Items #
 ###############
@@ -66,3 +71,8 @@ packages/
 /Nu/Nu.Gaia/Assets/Default/QA_HoldingCells
 /Nu/Nu.Gaia/Assets/Default/Residence
 /Nu/Nu.Gaia/Assets/Default/Villa
+
+###############
+# Nugen Items #
+###############
+/Projects/Nugen/Scrap/
