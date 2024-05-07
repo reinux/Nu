@@ -36,9 +36,11 @@
 	</Target>
 
 	<ItemGroup>
+		<Compile Include="AirFile.fs" />
 		<Compile Include="Simulants.fs" />
 		<Compile Include="Events.fs" />
-		<Compile Include="Kfm.fs" />
+		<Compile Include="Fighter.fs" />
+		<Compile Include="Fight.fs" />
 		<Compile Include="Gameplay.fs" />
 		<Compile Include="Nugen.fs" />
 		<Compile Include="NugenPlugin.fs" />
@@ -50,6 +52,7 @@
 		<Content Include="Overlayer.nuol">
 			<CopyToOutputDirectory>Always</CopyToOutputDirectory>
 		</Content>
+		<None Include="Scripts\MugenAirParser.fsx" />
 	</ItemGroup>
 
 	<ItemGroup>

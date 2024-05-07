@@ -4,41 +4,9 @@ open System.Numerics
 open Prime
 open Nu
 
-type PlayerController =
-    | LocalPlayer
-    | AIPlayer
-
-type Player =
-    { Controller: PlayerController
-      Kfm: Kfm
-      Score: int }
-    
-    static member make player kfm =
-        { Controller = player
-          Kfm = kfm
-          Score = 0
-        }
-
-type FightState =
-    { Player1: Player
-      Player2: Player
-      CameraPosition: Vector2i
-      RoundStartTime : int64 }
-
-    // static member empty = {}
-    //
-    static member initial =
-        { Player1 = Player.make LocalPlayer Kfm.initial
-          Player2 = Player.make AIPlayer Kfm.initial
-          CameraPosition = v2i 0 0
-          RoundStartTime = 0
-        }
-    //
-    // static member make _ _ _ = {}
-
 // this represents the state of gameplay simulation.
 type GameplayState =
-    | Playing of FightState
+    | Playing of Fight
     | Quit
 
 // this is our MMCC model type representing gameplay.
@@ -59,7 +27,7 @@ type Gameplay =
     // this represents the gameplay model in its initial state, such as when gameplay starts.
     static member initial =
         { Gameplay.empty with
-            GameplayState = Playing FightState.initial }
+            GameplayState = Playing Fight.initial }
 
 // this is our gameplay MMCC message type.
 type GameplayMessage =
