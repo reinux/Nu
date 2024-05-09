@@ -27,7 +27,7 @@ type Gameplay =
     // this represents the gameplay model in its initial state, such as when gameplay starts.
     static member initial =
         { Gameplay.empty with
-            GameplayState = Playing Fight.initial }
+            GameplayState = Playing (Fight.initial Fighter.tempFighterAirFile Fighter.tempFighterAirFile) }
 
 // this is our gameplay MMCC message type.
 type GameplayMessage =
@@ -107,7 +107,12 @@ type GameplayDispatcher () =
 
          // the scene group while playing
          match gameplay.GameplayState with
-         | Playing fight -> Content.groupFromFile Simulants.GameplayScene.Name "Assets/Gameplay/Scene.nugroup" [] []
+         | Playing fight -> Content.groupFromFile Simulants.GameplayScene.Name "Assets/Gameplay/Scene.nugroup" [] [
+                 Content.staticSprite "Player1"
+                    [ Entity.Position := v3 232.0f -144.0f 0.0f
+                      Entity.StaticImage := 
+                    ]
+             ]
 
          // no scene group otherwise
          | Quit -> ()]

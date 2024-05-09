@@ -63,7 +63,7 @@ type State =
 let preprocessLine (line: string) =
   match line.IndexOf(';') with
   | ix when ix < 0 -> line.Trim()
-  | ix -> line.Substring(ix).Trim()
+  | ix -> line.Substring(0, ix).Trim()
 
 let parseLine (state: State) (line: string) =
   let generalParse line =
@@ -83,7 +83,7 @@ let parseLine (state: State) (line: string) =
       | 1 -> { state with collisionBoxes = state.collisionBoxes.Add(clsnIx, box) }
       | 2 -> { state with attackCollisionBoxes =  state.attackCollisionBoxes.Add(clsnIx, box) }
       | x -> failwith $"Invalid collision kind: {x}"
-    | ParseRegex @"^(-?\d+)\s*,\s*(\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)((\s*,\s*(VH|HV|V|H|))(\s*,\s*(A(\d{0,3}))?(S(\d{0,3}))?)?)?\s*$"
+    | ParseRegex @"^(-?\d+)\s*,\s*(\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)((\s*,\s*(VH|HV|V|H|))(\s*,\s*(A|A1|(AS(\d{0,3}))?(D(\d{0,3}))?))?)?\s*$"
                  (Int groupNum :: Int imageNum :: Int offsetX :: Int offsetY :: Int duration :: _optional) ->
       // TODO: do blend and alpha
       let element =
@@ -100,7 +100,7 @@ let parseLine (state: State) (line: string) =
       { state with actions = (aid, { action with elements = element::action.elements })::actions }
     | ParseRegex @"^Clsn(1|2)(Default)?\s*\:\s*(\d+)$" [ Int _clsnKind; _default'; Int _numClsns ] ->
       state
-    | "Loopstart" ->
+    | "Loopstart" | "LoopStart" ->
       { state with actions = (aid, { action with loopStartIndex = action.elements.Length })::actions }
     | x -> generalParse x
  

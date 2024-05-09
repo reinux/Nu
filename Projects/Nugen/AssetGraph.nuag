@@ -18,5 +18,6 @@
    [Assets Assets/Gameplay [jpg jpeg tga tif tiff dds] [Render3d] [ConvertToDds]]
    [Assets Assets/Gameplay [cbm fbx dae obj mtl glsl raw] [Render3d] []]
    [Assets Assets/Gameplay [wav ogg mp3] [Audio] []]
+   [Assets Assets/Gameplay [air] [] []]
    [Assets Assets/Gameplay [nueffect nuscript csv] [Symbol] []]
    [Assets Assets/Gameplay [nuentity nugroup tsx tmx] [] []]]]]
