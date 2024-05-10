@@ -49,29 +49,29 @@ type GameplayState =
 // https://github.com/bryanedds/Nu/wiki/Pure-MMCC-vs.-Split-MMCC)
 type Gameplay =
     { GameplayTime : int64
+      GameplayState : GameplayState
       Player1: Player
       Player2: Player
       CameraPosition: Vector2i
-      RoundStartTime : int64
-      GameplayState : GameplayState }
+      RoundStartTime : int64 }
 
     // this represents the gameplay model in an unutilized state, such as when the gameplay screen is not selected.
     static member empty =
         { GameplayTime = 0L
+          GameplayState = Quit
           Player1 = Player.empty
           Player2 = Player.empty
           CameraPosition = v2iZero
-          RoundStartTime = 0L
-          GameplayState = Quit }
+          RoundStartTime = 0L }
 
     // this represents the gameplay model in its initial state, such as when gameplay starts.
     static member initial =
         { Gameplay.empty with
+            GameplayState = Playing
             Player1 = Player.make LocalPlayer (Fighter.make Fighter.tempFighterAirFile Rightward (v2i -100 0))
             Player2 = Player.make AIPlayer (Fighter.make Fighter.tempFighterAirFile Leftward (v2i 100 0))
             CameraPosition = v2i 0 0
-            RoundStartTime = 0
-            GameplayState = Playing }
+            RoundStartTime = 0 }
 
     static member update gameplay world =
         match gameplay.GameplayState with
