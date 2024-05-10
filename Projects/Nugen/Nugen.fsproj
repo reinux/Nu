@@ -40,7 +40,6 @@
 		<Compile Include="Simulants.fs" />
 		<Compile Include="Events.fs" />
 		<Compile Include="Fighter.fs" />
-		<Compile Include="Fight.fs" />
 		<Compile Include="Gameplay.fs" />
 		<Compile Include="Nugen.fs" />
 		<Compile Include="NugenPlugin.fs" />
