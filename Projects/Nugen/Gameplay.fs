@@ -39,7 +39,7 @@ type GameplayMessage =
 // this is our gameplay MMCC command type.
 type GameplayCommand =
     | StartQuitting
-    | AutoBounds
+    | UpdateSize
     interface Command
 
 // this extends the Screen API to expose the Gameplay model as well as the gameplay quit event.
@@ -60,7 +60,7 @@ type GameplayDispatcher () =
         [Screen.SelectEvent => StartPlaying
          Screen.DeselectingEvent => FinishQuitting
          Screen.TimeUpdateEvent => TimeUpdate
-         Entity.StaticImage.ChangeEvent => AutoBounds
+         Simulants.GameplayPlayer1.StaticImage.ChangeEvent => UpdateSize
          ]
 
     // here we handle the above messages
@@ -92,8 +92,14 @@ type GameplayDispatcher () =
         | StartQuitting ->
             let world = World.publish () screen.QuitEvent screen world
             just world
-        | AutoBounds ->
-            let entity = world.
+
+        | UpdateSize ->
+            let staticImage = Simulants.GameplayPlayer1.GetStaticImage world
+            match Metadata.tryGetTextureSize staticImage with
+            | Some textureSize ->
+                let world = Simulants.GameplayPlayer1.SetSize textureSize.V3 world
+                just world
+            | None -> just world
 
     // here we describe the content of the game including the hud, the scene, and the player
     override this.Content (gameplay, _) =
@@ -111,20 +117,21 @@ type GameplayDispatcher () =
 
          // the scene group while playing
          match gameplay.GameplayState with
-         | Playing fight -> Content.groupFromFile Simulants.GameplayScene.Name "Assets/Gameplay/Scene.nugroup" [] [
-                 let currentFrame = Fighter.currentActionElement fight.Player1.fighter gameplay.GameplayTime
-                 Content.text Simulants.GameplayTime.Name
-                    [Entity.Position == v3 0.0f 150.0f 0.0f
-                     Entity.Elevation == 10.0f
-                     Entity.Justification == Justified (JustifyCenter, JustifyMiddle)
-                     Entity.Text := $"Offset: {currentFrame.Offset}"]
-                 
-                 Content.staticSprite "Player1"
-                    [ Entity.Position := v3 (float32 fight.Player1.fighter.Position.X) (float32 fight.Player1.fighter.Position.Y) 0f
-                      // Entity.Elevation == 10.0f
-                      // Entity.Scale := v3 3.0f 3.0f 0.0f
-                      Entity.StaticImage := Fighter.fighterSpriteAsset (AirFile.ActionId currentFrame.GroupNum, currentFrame.ImageNum)
-                    ]
+         | Playing fight ->
+            Content.groupFromFile Simulants.GameplayScene.Name "Assets/Gameplay/Scene.nugroup" [] [
+                let currentFrame = Fighter.currentActionElement fight.Player1.fighter gameplay.GameplayTime
+                Content.text Simulants.GameplayTime.Name
+                   [Entity.Position == v3 0.0f 150.0f 0.0f
+                    Entity.Elevation == 10.0f
+                    Entity.Justification == Justified (JustifyCenter, JustifyMiddle)
+                    Entity.Text := $"Offset: {currentFrame.Offset}"]
+                
+                Content.staticSprite Simulants.GameplayPlayer1.Name
+                   [ Entity.Position := v3 (float32 fight.Player1.fighter.Position.X) (float32 fight.Player1.fighter.Position.Y) 0f
+                     // Entity.Elevation == 10.0f
+                     // Entity.Scale := v3 3.0f 3.0f 0.0f
+                     Entity.StaticImage := Fighter.fighterSpriteAsset (AirFile.ActionId currentFrame.GroupNum, currentFrame.ImageNum)
+                   ]
              ]
 
          // no scene group otherwise
