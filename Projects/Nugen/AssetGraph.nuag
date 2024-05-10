@@ -20,4 +20,9 @@
    [Assets Assets/Gameplay [wav ogg mp3] [Audio] []]
    [Assets Assets/Gameplay [air] [] []]
    [Assets Assets/Gameplay [nueffect nuscript csv] [Symbol] []]
-   [Assets Assets/Gameplay [nuentity nugroup tsx tmx] [] []]]]]
+   [Assets Assets/Gameplay [nuentity nugroup tsx tmx] [] []]]]
+ [TenShinHan
+  [[Assets Assets/TenShinHan [bmp png psd] [Render2d] [PsdToPng]]
+   [Assets Assets/TenShinHan [air] [] []]
+  ]]
+]

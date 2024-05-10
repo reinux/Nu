@@ -26,36 +26,36 @@ type Flip =
   | FlipBoth
 
 type AnimationElement =
-  { groupNum: int
-    imageNum: int
-    offset: int * int
-    duration: int
-    flip: Flip option
-    blendSource: int
-    blendDest: int
-    collisionBoxes: Map<int, CollisionBox>
-    attackCollisionBoxes: Map<int, CollisionBox>
+  { GroupNum: int
+    ImageNum: int
+    Offset: int * int
+    Duration: int
+    Flip: Flip option
+    BlendSource: int
+    BlendDest: int
+    CollisionBoxes: Map<int, CollisionBox>
+    AttackCollisionBoxes: Map<int, CollisionBox>
   }
 
 type Action =
-  { elements: AnimationElement list
-    loopStartIndex: int
+  { Elements: AnimationElement list
+    LoopStartIndex: int
   }
-  static member Default = { elements = []; loopStartIndex = 0 }
+  static member Default = { Elements = []; LoopStartIndex = 0 }
 
 type AirFile =
-  { actions: Map<ActionId, Action>
+  { Actions: Map<ActionId, Action>
   }
-  static member Default = { actions = Map.empty }
-  static member Make actions = { actions = Map actions }
+  static member Default = { Actions = Map.empty }
+  static member Make actions = { Actions = Map actions }
   
 type State =
-  { actions: (ActionId * Action) list
+  { Actions: (ActionId * Action) list
     collisionBoxes: Map<int, CollisionBox>
     attackCollisionBoxes: Map<int, CollisionBox>
   }
   static member Default =
-    { actions = []
+    { Actions = []
       collisionBoxes = Map.empty
       attackCollisionBoxes = Map.empty
     }
@@ -69,10 +69,10 @@ let parseLine (state: State) (line: string) =
   let generalParse line =
     match line with
     | ParseRegex @"^\[Begin Action\s+(\d+)\]$" [ Int actionNum ] ->
-      { state with actions = (ActionId actionNum, Action.Default)::state.actions }
+      { state with Actions = (ActionId actionNum, Action.Default)::state.Actions }
       | "" -> state
       | x -> printfn $"Failed to parse line: {x}"; state
-  match state.actions with
+  match state.Actions with
   | [] -> generalParse line
   | (aid, action)::actions ->
     match line with
@@ -87,26 +87,26 @@ let parseLine (state: State) (line: string) =
                  (Int groupNum :: Int imageNum :: Int offsetX :: Int offsetY :: Int duration :: _optional) ->
       // TODO: do blend and alpha
       let element =
-        { groupNum = groupNum
-          imageNum = imageNum
-          offset = offsetX, offsetY
-          duration = duration
-          flip = None
-          blendSource = 255
-          blendDest = 0
-          collisionBoxes = state.collisionBoxes
-          attackCollisionBoxes = state.attackCollisionBoxes
+        { GroupNum = groupNum
+          ImageNum = imageNum
+          Offset = offsetX, offsetY
+          Duration = duration
+          Flip = None
+          BlendSource = 255
+          BlendDest = 0
+          CollisionBoxes = state.collisionBoxes
+          AttackCollisionBoxes = state.attackCollisionBoxes
         }
-      { state with actions = (aid, { action with elements = element::action.elements })::actions }
+      { state with Actions = (aid, { action with Elements = element::action.Elements })::actions }
     | ParseRegex @"^Clsn(1|2)(Default)?\s*\:\s*(\d+)$" [ Int _clsnKind; _default'; Int _numClsns ] ->
       state
     | "Loopstart" | "LoopStart" ->
-      { state with actions = (aid, { action with loopStartIndex = action.elements.Length })::actions }
+      { state with Actions = (aid, { action with LoopStartIndex = action.Elements.Length })::actions }
     | x -> generalParse x
  
 let parse lines =
   lines
   |> Seq.map preprocessLine
   |> Seq.fold parseLine State.Default
-  |> (_.actions >> AirFile.Make)
+  |> (_.Actions >> AirFile.Make)
   

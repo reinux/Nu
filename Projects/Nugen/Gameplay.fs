@@ -110,7 +110,9 @@ type GameplayDispatcher () =
          | Playing fight -> Content.groupFromFile Simulants.GameplayScene.Name "Assets/Gameplay/Scene.nugroup" [] [
                  Content.staticSprite "Player1"
                     [ Entity.Position := v3 232.0f -144.0f 0.0f
-                      Entity.StaticImage := 
+                      Entity.Elevation == 10.0f
+                      Entity.Size == v3 1600.f 1216.f 0.f
+                      Entity.StaticImage := Fighter.fighterSpriteAsset (fight.Player1.fighter.Action.actionId, (Fighter.currentActionElement fight.Player1.fighter gameplay.GameplayTime).ImageNum)
                     ]
              ]
 
