@@ -73,10 +73,35 @@ type Gameplay =
             RoundStartTime = 0
             GameplayState = Playing }
 
+    static member update gameplay world =
+        match gameplay.GameplayState with
+        | Playing ->
+            let gameplay = 
+                match gameplay.Player1.fighter.Action, World.isKeyboardKeyDown KeyboardKey.A world with
+                | ActionState.WalkingBack, false ->
+                    { gameplay with
+                        Player1.fighter.ActionStartTime = gameplay.GameplayTime
+                        Player1.fighter.Action = Standing
+                    }
+                | ActionState.WalkingBack, true ->
+                    gameplay
+                | _, true ->
+                    { gameplay with
+                        Player1.fighter.Action = WalkingBack
+                        Player1.fighter.ActionStartTime = gameplay.GameplayTime
+                    }
+                | _, false ->
+                    gameplay
+            if gameplay.Player1.fighter.Action = WalkingBack then
+                { gameplay with Player1.fighter.Position = gameplay.Player1.fighter.Position + v2i -1 0 }
+            else gameplay
+        | Quit -> gameplay
+
 // this is our gameplay MMCC message type.
 type GameplayMessage =
     | StartPlaying
     | FinishQuitting
+    | Update
     | TimeUpdate
     interface Message
 
@@ -103,6 +128,7 @@ type GameplayDispatcher () =
     override this.Definitions (_, _) =
         [Screen.SelectEvent => StartPlaying
          Screen.DeselectingEvent => FinishQuitting
+         Screen.UpdateEvent => Update
          Screen.TimeUpdateEvent => TimeUpdate
          Simulants.GameplayPlayer1.StaticImage.ChangeEvent => UpdateSize
          ]
@@ -119,32 +145,13 @@ type GameplayDispatcher () =
             let gameplay = Gameplay.empty
             just gameplay
 
+        | Update ->
+            let gameplay = Gameplay.update gameplay world
+            just gameplay
+
         | TimeUpdate ->
             let gameDelta = world.GameDelta
             let gameplay = { gameplay with GameplayTime = gameplay.GameplayTime + gameDelta.Updates }
-            let gameplay =
-                match gameplay.GameplayState with
-                | Playing ->
-                    let gameplay = 
-                        match gameplay.Player1.fighter.Action, World.isKeyboardKeyDown KeyboardKey.A world with
-                        | ActionState.WalkingBack, false ->
-                            { gameplay with
-                                Player1.fighter.ActionStartTime = gameplay.GameplayTime
-                                Player1.fighter.Action = Standing
-                            }
-                        | ActionState.WalkingBack, true ->
-                            gameplay
-                        | _, true ->
-                            { gameplay with
-                                Player1.fighter.Action = WalkingBack
-                                Player1.fighter.ActionStartTime = gameplay.GameplayTime
-                            }
-                        | _, false ->
-                            gameplay
-                    if gameplay.Player1.fighter.Action = WalkingBack then
-                        { gameplay with Player1.fighter.Position = gameplay.Player1.fighter.Position + v2i -1 0 }
-                    else gameplay
-                | Quit -> gameplay
             just gameplay
 
     // here we handle the above commands
