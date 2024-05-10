@@ -5,7 +5,7 @@ open Prime
 open Nu
 
 type FightMessage =
-    | Nop
+    | Nil
     interface Message
     
 type FightCommand =
