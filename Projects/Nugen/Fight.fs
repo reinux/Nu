@@ -41,5 +41,28 @@ type Fight =
           CameraPosition = v2i 0 0
           RoundStartTime = 0
         }
+        
+    static member update ticks (world: World) fight =
+        let fight =
+            match fight.Player1.fighter.Action, World.isKeyboardKeyDown KeyboardKey.A world with
+            | ActionState.WalkingBack, false ->
+                { fight with
+                    Player1.fighter.ActionStartTime = ticks
+                    Player1.fighter.Action = Standing
+                }
+            | ActionState.WalkingBack, true ->
+                fight
+            | _, true ->
+                { fight with
+                    Player1.fighter.Action = WalkingBack
+                    Player1.fighter.ActionStartTime = ticks
+                }
+            | _, false ->
+                fight
+        let fight =
+            if fight.Player1.fighter.Action = WalkingBack then
+                { fight with Player1.fighter.Position = fight.Player1.fighter.Position + v2i -1 0 }
+            else fight
+        fight
     //
     // static member make _ _ _ = {}

@@ -39,6 +39,7 @@ type GameplayMessage =
 // this is our gameplay MMCC command type.
 type GameplayCommand =
     | StartQuitting
+    | AutoBounds
     interface Command
 
 // this extends the Screen API to expose the Gameplay model as well as the gameplay quit event.
@@ -58,7 +59,9 @@ type GameplayDispatcher () =
     override this.Definitions (_, _) =
         [Screen.SelectEvent => StartPlaying
          Screen.DeselectingEvent => FinishQuitting
-         Screen.TimeUpdateEvent => TimeUpdate]
+         Screen.TimeUpdateEvent => TimeUpdate
+         Entity.StaticImage.ChangeEvent => AutoBounds
+         ]
 
     // here we handle the above messages
     override this.Message (gameplay, message, _, world) =
@@ -75,6 +78,11 @@ type GameplayDispatcher () =
         | TimeUpdate ->
             let gameDelta = world.GameDelta
             let gameplay = { gameplay with GameplayTime = gameplay.GameplayTime + gameDelta.Updates }
+            let gameplay =
+                match gameplay.GameplayState with
+                | Playing fight ->
+                    { gameplay with GameplayState = Playing (Fight.update gameplay.GameplayTime world fight) }
+                | Quit -> gameplay
             just gameplay
 
     // here we handle the above commands
@@ -84,6 +92,9 @@ type GameplayDispatcher () =
         | StartQuitting ->
             let world = World.publish () screen.QuitEvent screen world
             just world
+        | AutoBounds ->
+            just world
+            // let entity = world.
 
     // here we describe the content of the game including the hud, the scene, and the player
     override this.Content (gameplay, _) =
@@ -91,13 +102,7 @@ type GameplayDispatcher () =
         [// the gui group
          Content.group Simulants.GameplayGui.Name []
 
-            [// time
-             Content.text Simulants.GameplayTime.Name
-                [Entity.Position == v3 0.0f 150.0f 0.0f
-                 Entity.Elevation == 10.0f
-                 Entity.Justification == Justified (JustifyCenter, JustifyMiddle)
-                 Entity.Text := string gameplay.GameplayTime]
-
+            [ 
              // quit
              Content.button Simulants.GameplayQuit.Name
                 [Entity.Position == v3 232.0f -144.0f 0.0f
@@ -108,11 +113,18 @@ type GameplayDispatcher () =
          // the scene group while playing
          match gameplay.GameplayState with
          | Playing fight -> Content.groupFromFile Simulants.GameplayScene.Name "Assets/Gameplay/Scene.nugroup" [] [
+                 let currentFrame = Fighter.currentActionElement fight.Player1.fighter gameplay.GameplayTime
+                 Content.text Simulants.GameplayTime.Name
+                    [Entity.Position == v3 0.0f 150.0f 0.0f
+                     Entity.Elevation == 10.0f
+                     Entity.Justification == Justified (JustifyCenter, JustifyMiddle)
+                     Entity.Text := $"Offset: {currentFrame.Offset}"]
+                 
                  Content.staticSprite "Player1"
-                    [ Entity.Position := v3 232.0f -144.0f 0.0f
-                      Entity.Elevation == 10.0f
-                      Entity.Size == v3 1600.f 1216.f 0.f
-                      Entity.StaticImage := Fighter.fighterSpriteAsset (fight.Player1.fighter.Action.actionId, (Fighter.currentActionElement fight.Player1.fighter gameplay.GameplayTime).ImageNum)
+                    [ Entity.Position := v3 (float32 fight.Player1.fighter.Position.X) (float32 fight.Player1.fighter.Position.Y) 0f
+                      // Entity.Elevation == 10.0f
+                      // Entity.Scale := v3 3.0f 3.0f 0.0f
+                      Entity.StaticImage := Fighter.fighterSpriteAsset (AirFile.ActionId currentFrame.GroupNum, currentFrame.ImageNum)
                     ]
              ]
 

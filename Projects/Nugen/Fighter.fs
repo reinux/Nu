@@ -54,6 +54,7 @@ and ActionState =
   | StandingToCrouching
   | CrouchingToStanding
   | Walking
+  | WalkingBack
   | Running
   | Falling
   | Fallen
@@ -61,20 +62,6 @@ and ActionState =
   | Kicking
   | TakingDamage
   | Defeated
-  member state.frames =
-    match state with
-    | Standing -> []
-    | Crouching -> []
-    | StandingToCrouching -> []
-    | CrouchingToStanding -> []
-    | Walking -> []
-    | Running -> []
-    | Falling -> []
-    | Fallen -> []
-    | Punching -> []
-    | Kicking -> []
-    | TakingDamage -> []
-    | Defeated -> []
   member state.actionId =
     match state with
     | Standing -> 0
@@ -82,6 +69,7 @@ and ActionState =
     | StandingToCrouching -> 12
     | CrouchingToStanding -> 10
     | Walking -> 20
+    | WalkingBack -> 21
     | Running -> 100
     | Falling -> 5050
     | Fallen -> 5110
@@ -95,6 +83,7 @@ and ActionState =
     | Standing
     | Crouching
     | Walking
+    | WalkingBack
     | Running
     | Fallen
     | Defeated -> Repeat
@@ -109,6 +98,7 @@ and ActionState =
     | Standing
     | Crouching
     | Walking
+    | WalkingBack
     | Running
     | CrouchingToStanding
     | StandingToCrouching -> true
