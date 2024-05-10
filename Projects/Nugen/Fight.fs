@@ -19,12 +19,18 @@ type Player =
       Score1: int
       Score2: int
     }
-    
-    static member make player fighter =
-        { Controller = player
-          fighter = fighter
+
+    static member empty =
+        { Controller = LocalPlayer
+          fighter = Fighter.empty
           Score1 = 0
           Score2 = 0
+        }
+    
+    static member make player fighter =
+        { Player.empty with
+            Controller = player
+            fighter = fighter
         }
 
 type Fight =
@@ -33,11 +39,17 @@ type Fight =
       CameraPosition: Vector2i
       RoundStartTime : int64 }
 
+    static member empty =
+        { Player1 = Player.empty
+          Player2 = Player.empty
+          CameraPosition = v2iZero
+          RoundStartTime = 0L }
+
     // static member empty = {}
     //
     static member initial fighter1AirFile fighter2AirFile =
-        { Player1 = Player.make LocalPlayer (Fighter.initial fighter1AirFile)
-          Player2 = Player.make AIPlayer (Fighter.initial fighter2AirFile)
+        { Player1 = Player.make LocalPlayer (Fighter.make fighter1AirFile Rightward (v2i -100 0))
+          Player2 = Player.make AIPlayer (Fighter.make fighter2AirFile Leftward (v2i 100 0))
           CameraPosition = v2i 0 0
           RoundStartTime = 0
         }

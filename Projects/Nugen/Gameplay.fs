@@ -6,7 +6,7 @@ open Nu
 
 // this represents the state of gameplay simulation.
 type GameplayState =
-    | Playing of Fight
+    | Fighting
     | Quit
 
 // this is our MMCC model type representing gameplay.
@@ -17,17 +17,20 @@ type GameplayState =
 // https://github.com/bryanedds/Nu/wiki/Pure-MMCC-vs.-Split-MMCC)
 type Gameplay =
     { GameplayTime : int64
+      Fight : Fight
       GameplayState : GameplayState }
 
     // this represents the gameplay model in an unutilized state, such as when the gameplay screen is not selected.
     static member empty =
         { GameplayTime = 0L
+          Fight = Fight.empty
           GameplayState = Quit }
 
     // this represents the gameplay model in its initial state, such as when gameplay starts.
     static member initial =
         { Gameplay.empty with
-            GameplayState = Playing (Fight.initial Fighter.tempFighterAirFile Fighter.tempFighterAirFile) }
+            Fight = Fight.initial Fighter.tempFighterAirFile Fighter.tempFighterAirFile
+            GameplayState = Fighting }
 
 // this is our gameplay MMCC message type.
 type GameplayMessage =
@@ -80,8 +83,7 @@ type GameplayDispatcher () =
             let gameplay = { gameplay with GameplayTime = gameplay.GameplayTime + gameDelta.Updates }
             let gameplay =
                 match gameplay.GameplayState with
-                | Playing fight ->
-                    { gameplay with GameplayState = Playing (Fight.update gameplay.GameplayTime world fight) }
+                | Fighting -> { gameplay with Fight = Fight.update gameplay.GameplayTime world gameplay.Fight }
                 | Quit -> gameplay
             just gameplay
 
@@ -117,9 +119,9 @@ type GameplayDispatcher () =
 
          // the scene group while playing
          match gameplay.GameplayState with
-         | Playing fight ->
+         | Fighting ->
             Content.groupFromFile Simulants.GameplayScene.Name "Assets/Gameplay/Scene.nugroup" [] [
-                let currentFrame = Fighter.currentActionElement fight.Player1.fighter gameplay.GameplayTime
+                let currentFrame = Fighter.currentActionElement gameplay.Fight.Player1.fighter gameplay.GameplayTime
                 Content.text Simulants.GameplayTime.Name
                    [Entity.Position == v3 0.0f 150.0f 0.0f
                     Entity.Elevation == 10.0f
@@ -127,10 +129,10 @@ type GameplayDispatcher () =
                     Entity.Text := $"Offset: {currentFrame.Offset}"]
                 
                 Content.staticSprite Simulants.GameplayPlayer1.Name
-                   [ Entity.Position := v3 (float32 fight.Player1.fighter.Position.X) (float32 fight.Player1.fighter.Position.Y) 0f
+                   [ Entity.Position := v3 (float32 gameplay.Fight.Player1.fighter.Position.X) (float32 gameplay.Fight.Player1.fighter.Position.Y) 0f
                      // Entity.Elevation == 10.0f
                      // Entity.Scale := v3 3.0f 3.0f 0.0f
-                     Entity.StaticImage := Fighter.fighterSpriteAsset (AirFile.ActionId currentFrame.GroupNum, currentFrame.ImageNum)
+                     Entity.StaticImage := Fighter.fighterSpriteAsset (ActionId currentFrame.GroupNum, currentFrame.ImageNum)
                    ]
              ]
 

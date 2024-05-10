@@ -15,7 +15,7 @@ type InteractionBox =
 
 type Collider = Collider of Bounds: Box2i * Kind: InteractionBox
 
-type Facing = Leftward | Rightward
+type Facing = Rightward | Leftward
 
 type DamageDescriptor =
   { points: int }
@@ -77,7 +77,7 @@ and ActionState =
     | Kicking -> 240
     | TakingDamage -> 120
     | Defeated -> 5110
-    |> AirFile.ActionId
+    |> ActionId
   member state.atAnimationEnd =
     match state with
     | Standing
@@ -113,24 +113,32 @@ type Fighter =
   { Health: int
     Action: ActionState
     ActionStartTime: int64
-    AirFile: AirFile.AirFile
+    AirFile: AirFile
     Facing: Facing
     Position: Vector2i }
-  static member initial airFile =
-    { Health = 100
+
+  static member empty =
+    { Health = 0
       Action = Standing
       ActionStartTime = 0
-      AirFile = airFile
+      AirFile = AirFile.Default
       Facing = Rightward
-      Position = v2i -100 0 }
+      Position = v2iZero }
+
+  static member make airFile facing position =
+    { Fighter.empty with
+        Health = 100
+        AirFile = airFile
+        Facing = facing
+        Position = position }
     
 module Fighter =
-    let fighterSpriteAsset (AirFile.ActionId group, frame) =
+    let fighterSpriteAsset (ActionId group, frame) =
       asset<Image> "TenShinHan" $"TenShinHan_%d{group}-%d{frame}"
     let tempFighterAirFile =
         System.IO.File.ReadAllLines("Assets/TenShinHan/TenShinHan.air")
         |> AirFile.parse
-    let rec eatActionFrames (elements: AirFile.AnimationElement list) (frame: int) =
+    let rec eatActionFrames (elements: AnimationElement list) (frame: int) =
       match elements with
       | { Duration = -1 } as element::_ -> element
       | element::elements ->
