@@ -19,8 +19,8 @@ type FieldMessage =
     | AvatarBodySeparationExplicit of BodySeparationExplicitData
     | AvatarBodySeparationImplicit of BodySeparationImplicitData
     | ScreenTransitioning of bool
-    | TryCommencingBattle of BattleType * Advent Set
     | FinishQuitting
+    | TryCommencingBattle of BattleType * Advent Set
     | MenuTeamOpen
     | MenuTeamAlly of int
     | MenuInventoryOpen
@@ -67,10 +67,10 @@ type FieldCommand =
     | WarpAvatar of Vector3
     | MoveAvatar of Vector3
     | FaceAvatar of Direction
-    | CommencingBattle
-    | CommenceBattle of BattleData * PrizePool
+    | StartPlaying
     | StartQuitting
-    | PlayFieldSong
+    | CommencingBattle of BattleData
+    | CommenceBattle of BattleData * PrizePool
     | ScheduleSound of int64 * single * Sound AssetTag
     | PlaySong of int64 * int64 * int64 * single * Song AssetTag
     | FadeOutSong of int64
@@ -102,8 +102,7 @@ module Field =
     type [<ReferenceEquality; SymbolicExpansion>] Field =
         private
             { FieldTime_ : int64
-              ViewBoundsAbsolute_ : Box2
-              FieldType_ : FieldType
+              FieldState_ : FieldState
               SaveSlot_ : SaveSlot
               OmniSeedState_ : OmniSeedState
               Avatar_ : Avatar
@@ -129,12 +128,11 @@ module Field =
               ShopOpt_ : Shop option
               DialogOpt_ : Dialog option
               FieldSongTimeOpt_ : int64 option
-              FieldState_ : FieldState }
+              FieldType_ : FieldType }
 
         (* Local Properties *)
         member this.FieldTime = this.FieldTime_
-        member this.ViewBoundsAbsolute = this.ViewBoundsAbsolute_
-        member this.FieldType = this.FieldType_
+        member this.FieldState = this.FieldState_
         member this.OmniSeedState = this.OmniSeedState_
         member this.Avatar = this.Avatar_
         member this.AvatarCollidedPropIds = this.AvatarCollidedPropIds_
@@ -158,7 +156,7 @@ module Field =
         member this.ShopOpt = this.ShopOpt_
         member this.DialogOpt = this.DialogOpt_
         member this.FieldSongTimeOpt = this.FieldSongTimeOpt_
-        member this.FieldState = this.FieldState_
+        member this.FieldType = this.FieldType_
 
     (* Low-Level Operations *)
 
@@ -218,7 +216,7 @@ module Field =
                         character
                     | None -> failwith ("Could not find CharacterData for '" + scstring teammate.CharacterType + "'."))
                 party
-        let battle = Battle.makeFromParty battleSpeed inventory party prizePool battleData
+        let battle = Battle.makeFromParty inventory party prizePool battleSpeed battleData
         battle
         
     let rec detokenize (field : Field) (text : string) =
@@ -1229,7 +1227,7 @@ module Field =
                     | Left (battleData, field) ->
                         let prizePool = { Consequents = Set.empty; Items = []; Gold = 0; Exp = 0 }
                         let field = commencingBattle battleData prizePool field
-                        (signal CommencingBattle :: signals, field)
+                        (signal (CommencingBattle battleData) :: signals, field)
                     | Right field -> (signals, field)
                 else (signals, field)
 
@@ -1243,7 +1241,7 @@ module Field =
         let field = { field with FieldTime_ = inc field.FieldTime_ }
         just field
 
-    let make time viewBounds2dAbsolute fieldType saveSlot randSeedState (avatar : Avatar) team advents inventory =
+    let make time fieldType saveSlot randSeedState (avatar : Avatar) team advents inventory =
         let (spiritRate, debugAdvents, debugKeyItems, definitions) =
             match Data.Value.Fields.TryGetValue fieldType with
             | (true, fieldData) -> (fieldData.EncounterRate, fieldData.FieldDebugAdvents, fieldData.FieldDebugKeyItems, fieldData.Definitions)
@@ -1255,8 +1253,7 @@ module Field =
         let omniSeedState = OmniSeedState.makeFromSeedState randSeedState
         let props = makeProps time fieldType omniSeedState
         { FieldTime_ = 0L
-          ViewBoundsAbsolute_ = viewBounds2dAbsolute
-          FieldType_ = fieldType
+          FieldState_ = Playing
           SaveSlot_ = saveSlot
           OmniSeedState_ = omniSeedState
           Avatar_ = avatar
@@ -1282,12 +1279,11 @@ module Field =
           ShopOpt_ = None
           DialogOpt_ = None
           FieldSongTimeOpt_ = None
-          FieldState_ = Playing }
+          FieldType_ = fieldType }
 
-    let empty viewBounds2dAbsolute =
+    let empty =
         { FieldTime_ = 0L
-          ViewBoundsAbsolute_ = viewBounds2dAbsolute
-          FieldType_ = EmptyField
+          FieldState_ = Quit
           SaveSlot_ = Slot1
           OmniSeedState_ = OmniSeedState.make ()
           Avatar_ = Avatar.empty ()
@@ -1313,13 +1309,13 @@ module Field =
           ShopOpt_ = None
           DialogOpt_ = None
           FieldSongTimeOpt_ = None
-          FieldState_ = Quit }
+          FieldType_ = EmptyField }
 
-    let initial time viewBounds2dAbsolute saveSlot =
-        make time viewBounds2dAbsolute TombOuter saveSlot (max 1UL Gen.randomul) (Avatar.initial ()) (Map.singleton 0 (Teammate.make 3 0 Jinn)) Advents.initial Inventory.initial
+    let initial time saveSlot =
+        make time TombOuter saveSlot (max 1UL Gen.randomul) (Avatar.initial ()) (Map.singleton 0 (Teammate.make 3 0 Jinn)) Advents.initial Inventory.initial
 
-    let debug time viewBounds2dAbsolute =
-        make time viewBounds2dAbsolute DebugField Slot1 Rand.DefaultSeedState (Avatar.empty ()) (Map.singleton 0 (Teammate.make 3 0 Jinn)) Advents.initial Inventory.initial
+    let debug time =
+        make time DebugField Slot1 Rand.DefaultSeedState (Avatar.empty ()) (Map.singleton 0 (Teammate.make 3 0 Jinn)) Advents.initial Inventory.initial
 
     let tryLoad time saveSlot =
         try let saveFilePath =
@@ -1333,9 +1329,9 @@ module Field =
             Some { field with Props_ = props }
         with _ -> None
 
-    let loadOrInitial time viewBounds2dAbsolute saveSlot =
+    let loadOrInitial time saveSlot =
         match tryLoad time saveSlot with
         | Some field -> field
-        | None -> initial time viewBounds2dAbsolute saveSlot
+        | None -> initial time saveSlot
 
 type Field = Field.Field
