@@ -5,6 +5,7 @@ in
     name = "dotnet-env";
     packages = with pkgs; [
       dotnetCorePackages.sdk_8_0
+      # steam-run
     ];
     LD_LIBRARY_PATH = with pkgs; pkgs.lib.makeLibraryPath [
       SDL2
@@ -18,6 +19,19 @@ in
       assimp
       renderdoc
       renderdoc.out
-    ];
+
+      libwebp
+      libjpeg
+      libtiff
+      libmikmod
+      libfishsound
+      smpeg
+      liboggz
+      flac
+      fluidsynth
+
+      xorg.libX11
+
+    ] + ":/run/opengl-driver/lib:/run/opengl-driver-32/lib";
   }
 
