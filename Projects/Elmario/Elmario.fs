@@ -66,8 +66,10 @@ type ElmarioDispatcher () =
                  Content.block2d "Ground"
                     [Entity.Position == v3 0.0f -128.0f 0.0f
                      Entity.Size == v3 384.0f 32.0f 0.0f
-                     Entity.StaticImage == asset "Gameplay" "TreeTop"]
+                     Entity.StaticImage == asset "Gameplay" "TreeTop"
+                     Entity.Friction == 0.1f]
                  Content.block2d "Rock"
                     [Entity.Position == v3 176.0f -96.0f 0.0f
                      Entity.Size == v3 32.0f 32.0f 0.0f
-                     Entity.StaticImage == asset "Gameplay" "Rock"]]]]
+                     Entity.StaticImage == asset "Gameplay" "Rock"
+                     Entity.Friction == 0.1f]]]]
