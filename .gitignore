@@ -72,7 +72,15 @@ packages/
 /Nu/Nu.Gaia/Assets/Default/Residence
 /Nu/Nu.Gaia/Assets/Default/Villa
 
+#######
+# Nix #
+#######
+.envrc
+.direnv
+flake.lock
+
 ###############
 # Nugen Items #
 ###############
 /Projects/Nugen/Scrap/
+
