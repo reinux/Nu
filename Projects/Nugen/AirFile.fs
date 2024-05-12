@@ -50,7 +50,11 @@ type AirFile =
   { Actions: Map<ActionId, Action>
   }
   static member Default = { Actions = Map.empty }
-  static member Make actions = { Actions = Map actions }
+  static member Make actions =
+    let actions =
+      actions
+      |> List.map (fun (aid, action) -> aid, { action with Elements = List.rev action.Elements })
+    { Actions = Map actions }
   
 type State =
   { Actions: (ActionId * Action) list

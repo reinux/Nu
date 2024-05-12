@@ -92,9 +92,28 @@ type Gameplay =
                     }
                 | _, false ->
                     gameplay
-            if gameplay.Player1.fighter.Action = WalkingBack then
+            let gameplay =
+                match gameplay.Player1.fighter.Action, World.isKeyboardKeyDown KeyboardKey.D world with
+                | ActionState.Walking, false ->
+                    { gameplay with
+                        Player1.fighter.ActionStartTime = gameplay.GameplayTime
+                        Player1.fighter.Action = Standing
+                    }
+                | ActionState.Walking, true ->
+                    gameplay
+                | _, true ->
+                    { gameplay with
+                        Player1.fighter.Action = Walking
+                        Player1.fighter.ActionStartTime = gameplay.GameplayTime
+                    }
+                | _, false ->
+                    gameplay
+            match gameplay.Player1.fighter.Action with
+            | WalkingBack ->
                 { gameplay with Player1.fighter.Position = gameplay.Player1.fighter.Position + v2i -1 0 }
-            else gameplay
+            | Walking ->
+                { gameplay with Player1.fighter.Position = gameplay.Player1.fighter.Position + v2i +1 0 }
+            | _ -> gameplay
         | Quit -> gameplay
 
 // this is our gameplay MMCC message type.
