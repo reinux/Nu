@@ -1,14 +1,25 @@
 ﻿namespace Nugen
 open Nu
 
-type FighterInput =
-  | Left
-  | Right
-  | Jump
-  | Crouch
-  | Punch
-  | Kick
+[<RequireQualifiedAccess>]
+type DPadH =
+  | Center
+  | Forward
+  | Backward
+[<RequireQualifiedAccess>]
+type DPadV =
+  | Center
+  | Up
+  | Down
 
+type FighterInputButton =
+  | LowPunch
+  | MediumPunch
+  | HighPunch
+  | LowKick
+  | MediumKick
+  | HighKick
+  
 type InteractionBox =
   | HurtBox
   | HitBox
@@ -21,7 +32,7 @@ type DamageDescriptor =
   { points: int }
 
 type FighterMessage =
-  | UpdateInput of FighterInput
+  | UpdateInput of DPadH * DPadV * FighterInputButton
   | TakeDamage of DamageDescriptor
   
 type FighterCommand =
@@ -53,7 +64,7 @@ and ActionState =
   | Crouching
   | StandingToCrouching
   | CrouchingToStanding
-  | Walking
+  | WalkingForward
   | WalkingBack
   | Running
   | Falling
@@ -68,7 +79,7 @@ and ActionState =
     | Crouching -> 11
     | StandingToCrouching -> 12
     | CrouchingToStanding -> 10
-    | Walking -> 20
+    | WalkingForward -> 20
     | WalkingBack -> 21
     | Running -> 100
     | Falling -> 5050
@@ -82,7 +93,7 @@ and ActionState =
     match state with
     | Standing
     | Crouching
-    | Walking
+    | WalkingForward
     | WalkingBack
     | Running
     | Fallen
@@ -97,7 +108,7 @@ and ActionState =
     match state with
     | Standing
     | Crouching
-    | Walking
+    | WalkingForward
     | WalkingBack
     | Running
     | CrouchingToStanding
@@ -116,6 +127,30 @@ type Fighter =
     AirFile: AirFile
     Facing: Facing
     Position: Vector2i }
+  member fighter.withAction startTime action =
+    { fighter with ActionStartTime = startTime; Action = action }
+  
+  /// Respond to player input. In a full implementation, the commands inputs would first be
+  /// parsed by the Player type before being issued to Fighter.
+  member fighter.parseInput time (dpadh, dpadv, button) =
+    let fighter =
+      match fighter.Action, dpadh, dpadv, button  with
+      | Standing, DPadH.Forward, DPadV.Center, None ->
+        { fighter with Action = WalkingForward; ActionStartTime = time }
+      | Standing, DPadH.Backward, DPadV.Center, None ->
+        { fighter with Action = WalkingBack; ActionStartTime = time }
+      | Standing, DPadH.Center, DPadV.Down, None ->
+        { fighter with Action = Crouching; ActionStartTime = time }
+      | WalkingForward, DPadH.Center, DPadV.Center, None
+      | Crouching, DPadH.Center, DPadV.Center, None
+      | WalkingBack, DPadH.Center, DPadV.Center, None ->
+        { fighter with Action = Standing; ActionStartTime = time }
+      | Standing, DPadH.Center, DPadV.Center, Some LowPunch ->
+        { fighter with Action = Punching; ActionStartTime = time }
+      | Standing, DPadH.Center, DPadV.Center, Some LowKick ->
+        { fighter with Action = Kicking; ActionStartTime = time }
+      | _ -> fighter
+    fighter
 
   static member empty =
     { Health = 0
@@ -151,7 +186,10 @@ module Fighter =
       let action = fighter.AirFile.Actions[fighter.Action.actionId]
       let preLoop, loop =
         List.splitAt action.LoopStartIndex action.Elements
-      let preLoopDuration = preLoop |> List.sumBy (fun element -> if element.Duration < 0 then 0 else element.Duration)
+      let preLoopDuration =
+        preLoop
+        |> List.sumBy (fun element -> if element.Duration < 0 then 0 else element.Duration)
+        |> int64
       let loopDuration =
           match List.tryLast action.Elements with
           | Some { Duration = -1 }
@@ -160,7 +198,8 @@ module Fighter =
           | _ ->
             loop |> List.sumBy (fun element -> if element.Duration < 0 then 0 else element.Duration)
       if currentFrame < preLoopDuration then
-        eatActionFrames preLoop (int currentFrame)
+        false, eatActionFrames preLoop (int currentFrame)
       else
-        let timeInLoop = (currentFrame - (int64 preLoopDuration)) % loopDuration
-        eatActionFrames loop (int timeInLoop)
+        let timeInLoop = (currentFrame - preLoopDuration) % loopDuration
+        let loopedBack = timeInLoop = 0 && currentFrame <> preLoopDuration + 1L
+        loopedBack, eatActionFrames loop (int timeInLoop)

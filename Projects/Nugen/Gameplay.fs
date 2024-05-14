@@ -18,14 +18,14 @@ type PlayerController =
 
 type Player =
     { Controller: PlayerController
-      fighter: Fighter
+      Fighter: Fighter
       Score1: int
       Score2: int
     }
 
     static member empty =
         { Controller = LocalPlayer
-          fighter = Fighter.empty
+          Fighter = Fighter.empty
           Score1 = 0
           Score2 = 0
         }
@@ -33,7 +33,7 @@ type Player =
     static member make player fighter =
         { Player.empty with
             Controller = player
-            fighter = fighter
+            Fighter = fighter
         }
 
 // this represents the state of gameplay simulation.
@@ -76,43 +76,43 @@ type Gameplay =
     static member update gameplay world =
         match gameplay.GameplayState with
         | Playing ->
-            let gameplay = 
-                match gameplay.Player1.fighter.Action, World.isKeyboardKeyDown KeyboardKey.A world with
-                | ActionState.WalkingBack, false ->
-                    { gameplay with
-                        Player1.fighter.ActionStartTime = gameplay.GameplayTime
-                        Player1.fighter.Action = Standing
-                    }
-                | ActionState.WalkingBack, true ->
-                    gameplay
-                | _, true ->
-                    { gameplay with
-                        Player1.fighter.Action = WalkingBack
-                        Player1.fighter.ActionStartTime = gameplay.GameplayTime
-                    }
-                | _, false ->
-                    gameplay
+            let dpadH =
+                if World.isKeyboardKeyDown KeyboardKey.D world then
+                    DPadH.Forward
+                elif World.isKeyboardKeyDown KeyboardKey.A world then
+                    DPadH.Backward
+                else DPadH.Center
+            let dpadV =
+                if World.isKeyboardKeyDown KeyboardKey.W world then
+                    DPadV.Up
+                elif World.isKeyboardKeyDown KeyboardKey.S world then
+                    DPadV.Down
+                else DPadV.Center
+            let button =
+                if World.isKeyboardKeyDown KeyboardKey.J world then
+                    Some FighterInputButton.LowPunch
+                elif World.isKeyboardKeyDown KeyboardKey.K world then
+                    Some FighterInputButton.MediumPunch
+                elif World.isKeyboardKeyDown KeyboardKey.L world then
+                    Some FighterInputButton.HighPunch
+                elif World.isKeyboardKeyDown KeyboardKey.M world then
+                    Some FighterInputButton.LowKick
+                elif World.isKeyboardKeyDown KeyboardKey.Comma world then
+                    Some FighterInputButton.MediumKick
+                elif World.isKeyboardKeyDown KeyboardKey.Period world then
+                    Some FighterInputButton.HighKick
+                else None
             let gameplay =
-                match gameplay.Player1.fighter.Action, World.isKeyboardKeyDown KeyboardKey.D world with
-                | ActionState.Walking, false ->
-                    { gameplay with
-                        Player1.fighter.ActionStartTime = gameplay.GameplayTime
-                        Player1.fighter.Action = Standing
-                    }
-                | ActionState.Walking, true ->
-                    gameplay
-                | _, true ->
-                    { gameplay with
-                        Player1.fighter.Action = Walking
-                        Player1.fighter.ActionStartTime = gameplay.GameplayTime
-                    }
-                | _, false ->
-                    gameplay
-            match gameplay.Player1.fighter.Action with
+                // if dpadH <> DPadH.Center then
+                //     Console.WriteLine(dpadH)
+                let fighter =
+                    gameplay.Player1.Fighter.parseInput gameplay.GameplayTime (dpadH, dpadV, button)
+                { gameplay with Player1.Fighter = fighter }
+            match gameplay.Player1.Fighter.Action with
             | WalkingBack ->
-                { gameplay with Player1.fighter.Position = gameplay.Player1.fighter.Position + v2i -1 0 }
-            | Walking ->
-                { gameplay with Player1.fighter.Position = gameplay.Player1.fighter.Position + v2i +1 0 }
+                { gameplay with Player1.Fighter.Position = gameplay.Player1.Fighter.Position + v2i -1 0 }
+            | WalkingForward ->
+                { gameplay with Player1.Fighter.Position = gameplay.Player1.Fighter.Position + v2i +1 0 }
             | _ -> gameplay
         | Quit -> gameplay
 
@@ -207,7 +207,7 @@ type GameplayDispatcher () =
          match gameplay.GameplayState with
          | Playing ->
             Content.groupFromFile Simulants.GameplayScene.Name "Assets/Gameplay/Scene.nugroup" [] [
-                let currentFrame = Fighter.currentActionElement gameplay.Player1.fighter gameplay.GameplayTime
+                let loopedBack, currentFrame = Fighter.currentActionElement gameplay.Player1.Fighter gameplay.GameplayTime
                 Content.text Simulants.GameplayTime.Name
                    [Entity.Position == v3 0.0f 150.0f 0.0f
                     Entity.Elevation == 10.0f
@@ -215,7 +215,7 @@ type GameplayDispatcher () =
                     Entity.Text := $"Offset: {currentFrame.Offset}"]
                 
                 Content.staticSprite Simulants.GameplayPlayer1.Name
-                   [ Entity.Position := v3 (float32 gameplay.Player1.fighter.Position.X) (float32 gameplay.Player1.fighter.Position.Y) 0f
+                   [ Entity.Position := v3 (float32 gameplay.Player1.Fighter.Position.X) (float32 gameplay.Player1.Fighter.Position.Y) 0f
                      // Entity.Elevation == 10.0f
                      // Entity.Scale := v3 3.0f 3.0f 0.0f
                      Entity.StaticImage := Fighter.fighterSpriteAsset (ActionId currentFrame.GroupNum, currentFrame.ImageNum)
