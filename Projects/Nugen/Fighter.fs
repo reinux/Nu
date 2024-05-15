@@ -132,23 +132,32 @@ type Fighter =
   
   /// Respond to player input. In a full implementation, the commands inputs would first be
   /// parsed by the Player type before being issued to Fighter.
-  member fighter.parseInput time (dpadh, dpadv, button) =
+  member fighter.parseInput time loopedBack (dpadh, dpadv, button) =
     let fighter =
-      match fighter.Action, dpadh, dpadv, button  with
-      | Standing, DPadH.Forward, DPadV.Center, None ->
-        { fighter with Action = WalkingForward; ActionStartTime = time }
-      | Standing, DPadH.Backward, DPadV.Center, None ->
-        { fighter with Action = WalkingBack; ActionStartTime = time }
-      | Standing, DPadH.Center, DPadV.Down, None ->
-        { fighter with Action = Crouching; ActionStartTime = time }
-      | WalkingForward, DPadH.Center, DPadV.Center, None
-      | Crouching, DPadH.Center, DPadV.Center, None
-      | WalkingBack, DPadH.Center, DPadV.Center, None ->
-        { fighter with Action = Standing; ActionStartTime = time }
-      | Standing, DPadH.Center, DPadV.Center, Some LowPunch ->
-        { fighter with Action = Punching; ActionStartTime = time }
-      | Standing, DPadH.Center, DPadV.Center, Some LowKick ->
-        { fighter with Action = Kicking; ActionStartTime = time }
+      let transitionTo toAction =
+        { fighter with Action = toAction; ActionStartTime = time }
+      match fighter.Action, loopedBack, dpadh, dpadv, button  with
+      | Standing, _, DPadH.Forward, DPadV.Center, None ->
+        transitionTo WalkingForward
+      | Standing, _, DPadH.Backward, DPadV.Center, None ->
+        transitionTo WalkingBack
+      | Standing, _, DPadH.Center, DPadV.Down, None ->
+        transitionTo StandingToCrouching
+      | StandingToCrouching, true, _, _, _ ->
+        transitionTo Crouching
+      | Crouching, _, DPadH.Center, DPadV.Center, None ->
+        transitionTo CrouchingToStanding
+      | CrouchingToStanding, true, _, _, _
+      | WalkingForward, _, DPadH.Center, DPadV.Center, None
+      | WalkingBack, _, DPadH.Center, DPadV.Center, None ->
+        transitionTo Standing
+      | Standing, _, DPadH.Center, DPadV.Center, Some LowPunch ->
+        transitionTo Punching
+      | Standing, _, DPadH.Center, DPadV.Center, Some LowKick ->
+        transitionTo Kicking
+      | Punching, true, DPadH.Center, DPadV.Center, _
+      | Kicking, true, DPadH.Center, DPadV.Center, _ ->
+        transitionTo Standing
       | _ -> fighter
     fighter
 
