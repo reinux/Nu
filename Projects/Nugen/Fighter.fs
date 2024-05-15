@@ -77,8 +77,8 @@ and ActionState =
     match state with
     | Standing -> 0
     | Crouching -> 11
-    | StandingToCrouching -> 12
-    | CrouchingToStanding -> 10
+    | StandingToCrouching -> 10
+    | CrouchingToStanding -> 12
     | WalkingForward -> 20
     | WalkingBack -> 21
     | Running -> 100
@@ -207,10 +207,8 @@ module Fighter =
           | _ ->
             loop |> List.sumBy (fun element -> if element.Duration < 0 then 0 else element.Duration)
       if currentFrame < preLoopDuration then
-        System.Console.WriteLine($"PreLoop {currentFrame}")
         false, eatActionFrames preLoop (int currentFrame)
       else
         let timeInLoop = (currentFrame - preLoopDuration) % loopDuration
-        System.Console.WriteLine($"TimeInLoop {timeInLoop}")
         let loopedBack = timeInLoop = 0 && currentFrame <> preLoopDuration + 1L
         loopedBack, eatActionFrames loop (int timeInLoop)

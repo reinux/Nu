@@ -104,8 +104,6 @@ type Gameplay =
                     Some FighterInputButton.HighKick
                 else None
             let gameplay =
-                if dpadH <> DPadH.Center then
-                    Console.WriteLine(dpadH)
                 let loopedBack, _ = Fighter.currentActionElement gameplay.Player1.Fighter gameplay.GameplayTime
                 let fighter =
                     gameplay.Player1.Fighter.parseInput gameplay.GameplayTime loopedBack (dpadH, dpadV, button)
@@ -209,13 +207,13 @@ type GameplayDispatcher () =
          match gameplay.GameplayState with
          | Playing ->
             Content.groupFromFile Simulants.GameplayScene.Name "Assets/Gameplay/Scene.nugroup" [] [
-                let _, currentFrame = Fighter.currentActionElement gameplay.Player1.Fighter gameplay.GameplayTime
+                let reloop, currentFrame = Fighter.currentActionElement gameplay.Player1.Fighter gameplay.GameplayTime
                 Content.text Simulants.GameplayTime.Name
                    [Entity.Position == v3 0.0f 150.0f 0.0f
                     Entity.Elevation == 10.0f
                     Entity.Justification == Justified (JustifyCenter, JustifyMiddle)
                     Entity.Text := $"Offset: {currentFrame.Offset}"]
-                
+                   
                 Content.staticSprite Simulants.GameplayPlayer1.Name
                    [ Entity.Position := v3 (float32 gameplay.Player1.Fighter.Position.X) (float32 gameplay.Player1.Fighter.Position.Y) 0f
                      // Entity.Elevation == 10.0f
