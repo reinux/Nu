@@ -46,6 +46,7 @@ type Action =
   }
   static member Default = { Elements = []; LoopStartIndex = 0 }
 
+[<ReferenceEquality>]
 type AirFile =
   { Actions: Map<ActionId, Action>
   }
