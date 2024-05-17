@@ -235,6 +235,11 @@ type FieldDispatcher () =
             let field = Field.mapMenu (fun menu -> { menu with MenuState = state }) field
             just field
 
+        | MenuAutoMapOpen ->
+            let state = MenuAutoMap
+            let field = Field.mapMenu (fun menu -> { menu with MenuState = state }) field
+            just field
+
         | MenuTeamAlly index ->
             let field =
                 Field.mapMenu (fun menu ->
@@ -664,7 +669,7 @@ type FieldDispatcher () =
                     [Entity.PropPlus := PropPlus.make field.FieldTime field.Avatar.Perimeter.Bottom field.Advents prop]
 
              // spirit orb
-             if Field.hasEncounters field && CueSystem.Cue.isFin field.Cue then
+             if Field.hasEncounters field && CueSystem.Cue.isFin field.Cue && field.Menu.MenuState = MenuClosed then
                 Content.entity<SpiritOrbDispatcher> "SpiritOrb"
                     [Entity.Position == v3 -448.0f 48.0f 0.0f; Entity.Elevation == Constants.Field.SpiritOrbElevation; Entity.Size == v3 192.0f 192.0f 0.0f
                      Entity.SpiritOrb :=
@@ -723,7 +728,7 @@ type FieldDispatcher () =
                             match tileMapChc with
                             | Choice1Of4 tileMap
                             | Choice2Of4 (tileMap, _)
-                            | Choice3Of4 (tileMap, _)
+                            | Choice3Of4 (_, tileMap, _)
                             | Choice4Of4 tileMap -> tileMap
                         | None -> failwithumf ()
                     | None -> failwithumf ()
@@ -752,7 +757,7 @@ type FieldDispatcher () =
                            match tileMapChc with
                            | Choice1Of4 _ -> (Metadata.getTileMapMetadata Assets.Default.EmptyTileMap).TileMap
                            | Choice2Of4 (_, tileMapFade) -> tileMapFade
-                           | Choice3Of4 (_, _) -> (Metadata.getTileMapMetadata Assets.Default.EmptyTileMap).TileMap
+                           | Choice3Of4 (_, _, _) -> (Metadata.getTileMapMetadata Assets.Default.EmptyTileMap).TileMap
                            | Choice4Of4 _ -> (Metadata.getTileMapMetadata Assets.Default.EmptyTileMap).TileMap
                        | None -> (Metadata.getTileMapMetadata Assets.Default.EmptyTileMap).TileMap
                     | None -> (Metadata.getTileMapMetadata Assets.Default.EmptyTileMap).TileMap
@@ -839,6 +844,16 @@ type FieldDispatcher () =
                         | MenuTeam team -> team.TeamIndex <> teammate.TeamIndex
                         | _ -> true)
                         MenuTeamAlly
+                     Content.button "AutoMap"
+                       [Entity.PositionLocal == v3 138.0f 12.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 252.0f 72.0f 0.0f
+                        Entity.EnabledLocal := Field.hasAutoMap field
+                        Entity.UpImage == Assets.Field.ButtonAutoMapUpImage
+                        Entity.DownImage == Assets.Field.ButtonAutoMapDownImage
+                        Entity.TextColor == Color 0x93544CFFu
+                        Entity.TextDisabledColor == Color 0x93544CC0u
+                        Entity.Text == "Map"
+                        Entity.ClickSoundOpt == Some Assets.Field.AutoMapSound
+                        Entity.ClickEvent => MenuAutoMapOpen]
                      Content.label "Portrait"
                         [Entity.PositionLocal == v3 438.0f 288.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 192.0f 192.0f 0.0f
                          Entity.BackdropImageOpt :=
@@ -899,6 +914,74 @@ type FieldDispatcher () =
                         [Entity.PositionLocal == v3 444.0f 9.0f 0.0f; Entity.ElevationLocal == 1.0f
                          Entity.Justification == Unjustified false
                          Entity.Text := string field.Inventory.Gold + "G"]]
+
+             // auto map
+             | MenuAutoMap ->
+                match Data.Value.Fields.TryGetValue field.FieldType with
+                | (true, fieldData) ->
+                    match FieldData.tryGetTileMap field.OmniSeedState fieldData with
+                    | Some (Choice3Of4 (randMap, _, _)) ->
+                        let mapSize = Constants.Field.RandMapSize.V3 * Constants.Field.AutoTileSize
+                        let mapOffset = mapSize * -0.5f
+                        Content.staticSprite "AutoMap"
+                            [Entity.Position == v3 -144.0f -144.0f 0.0f
+                             Entity.Size == v3 288.0f 288.0f 0.0f
+                             Entity.Elevation == Constants.Field.GuiElevation
+                             Entity.Absolute == true
+                             Entity.StaticImage == Assets.Field.AutoMapImage]
+                        let autoMap = match field.AutoMaps.TryGetValue field.FieldType with (true, autoMap) -> autoMap | (false, _) -> Set.empty
+                        for j in 0 .. dec Constants.Field.RandMapSize.Y do
+                            for i in 0 .. dec Constants.Field.RandMapSize.X do
+                                let index = v2i i j
+                                if autoMap.Contains index then
+                                    Content.staticSprite ("AutoTile+" + scstring index.X + "+" + scstring index.Y)
+                                        [Entity.Position := index.V3 * Constants.Field.AutoTileSize + mapOffset
+                                         Entity.Size == Constants.Field.AutoTileSize
+                                         Entity.Elevation == Constants.Field.GuiElevation + 1.0f
+                                         Entity.Absolute == true
+                                         Entity.StaticImage := asset Assets.Field.PackageName (scstringMemo randMap.Segments.[dec Constants.Field.RandMapSize.Y - j].[i])]
+                                if Some index = randMap.OriginOpt then
+                                    Content.staticSprite "AutoOrigin"
+                                        [Entity.Position :=
+                                            index.MapY(fun y -> dec Constants.Field.RandMapSize.Y - y).V3 *
+                                            Constants.Field.AutoTileSize +
+                                            v3 3.0f 3.0f 0.0f +
+                                            mapOffset
+                                         Entity.Size == v3 18.0f 18.0f 0.0f
+                                         Entity.Elevation == Constants.Field.GuiElevation + 2.0f
+                                         Entity.Absolute == true
+                                         Entity.StaticImage == Assets.Field.AutoOriginImage]
+                        Content.staticSprite "AutoAvatar"
+                            [Entity.Position :=
+                                field.Avatar.Perimeter.BottomOffset5 /
+                                Constants.Field.RoomSize.V3 /
+                                Constants.Gameplay.TileSize *
+                                Constants.Field.AutoTileSize +
+                                v3 -7.5f -7.5f 0.0f +
+                                mapOffset
+                             Entity.Size == v3 15.0f 15.0f 0.0f
+                             Entity.Elevation == Constants.Field.GuiElevation + 3.0f
+                             Entity.Absolute == true
+                             Entity.StaticImage == Assets.Field.AutoAvatarImage
+                             Entity.Visible := field.FieldTime / 20L % 3L <> 0L]
+                        Content.button "AutoBack"
+                            [Entity.Position == v3 -78.0f -216.0f 0.0f
+                             Entity.Size == v3 72.0f 72.0f 0.0f
+                             Entity.Elevation == Constants.Field.GuiElevation
+                             Entity.UpImage == asset "Field" "BackButtonUp"
+                             Entity.DownImage == asset "Field" "BackButtonDown"
+                             Entity.ClickSoundOpt == Some Assets.Field.AutoMapSound
+                             Entity.ClickEvent => MenuTeamOpen]
+                        Content.button "AutoClose"
+                            [Entity.Position == v3 6.0f -216.0f 0.0f
+                             Entity.Size == v3 72.0f 72.0f 0.0f
+                             Entity.Elevation == Constants.Field.GuiElevation
+                             Entity.UpImage == asset "Field" "CloseButtonUp"
+                             Entity.DownImage == asset "Field" "CloseButtonDown"
+                             Entity.ClickSoundOpt == Some Assets.Field.AutoMapSound
+                             Entity.ClickEvent => MenuClose]
+                    | Some _ | None -> ()
+                | (false, _) -> ()
 
              // inventory
              | MenuInventory _ ->

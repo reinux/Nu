@@ -343,6 +343,20 @@ type ShopType =
     | Chemist
     | Armory
 
+    static member getChemistBuyItems (_ : Advent Set) =
+        [Consumable GreenHerb; Consumable RedHerb; Consumable Remedy
+         Consumable Ether; Consumable HighEther; Consumable Revive]
+
+    static member getArmoryBuyItems (_ : Advent Set) =
+        [Equipment (WeaponType BronzeSword); Equipment (WeaponType BronzeKatana); Equipment (WeaponType BronzeRod); Equipment (WeaponType LightBow)
+         Equipment (ArmorType BronzeMail); Equipment (ArmorType LeatherVest); Equipment (ArmorType LeatherRobe)
+         Equipment (AccessoryType SteelRing)]
+
+    static member getShopBuyItems advents shopType =
+        match shopType with
+        | Chemist -> ShopType.getChemistBuyItems advents
+        | Armory -> ShopType.getArmoryBuyItems advents
+
 type ShopkeepAppearanceType =
     | Male
     | Female
@@ -851,10 +865,6 @@ type DoorData =
       OpenImage : Image AssetTag
       ClosedImage : Image AssetTag }
 
-type ShopData =
-    { ShopType : ShopType // key
-      ShopItems : ItemType list }
-
 type BattleData =
     { BattleType : BattleType // key
       BattleAllyPositions : Vector3 list
@@ -944,7 +954,7 @@ type FieldData =
 [<RequireQualifiedAccess>]
 module FieldData =
 
-    let mutable tileMapsMemoized = Map.empty<uint64 * FieldType, Choice<TmxMap, TmxMap * TmxMap, TmxMap * Origin, TmxMap>>
+    let mutable tileMapsMemoized = Map.empty<uint64 * FieldType, Choice<TmxMap, TmxMap * TmxMap, RandMap * TmxMap * Origin, TmxMap>>
     let mutable propObjectsMemoized = Map.empty<uint64 * FieldType, TmxMap * (TmxObjectGroup * TmxObject) list * Origin option>
     let mutable propDescriptorsMemoized = Map.empty<uint64 * FieldType, PropDescriptor list>
 
@@ -982,7 +992,7 @@ module FieldData =
                     let (cursor, randMap, _) = RandMap.makeFromRand walkCount walkLength bias Constants.Field.RandMapSize origin floor rand
                     let fieldName = FieldType.toFieldName fieldData.FieldType
                     let tileMap = RandMap.toTmx fieldName fieldPath origin cursor floor fieldData.UseWindPortal fieldData.UseAlternativeNormalSegments fieldData.UseAlternativeSpecialSegments randMap
-                    Some (Choice3Of4 (tileMap, origin))
+                    Some (Choice3Of4 (randMap, tileMap, origin))
                 | FieldRoom fieldAsset ->
                     match Metadata.tryGetTileMapMetadata fieldAsset with
                     | Some tileMapMetadata -> Some (Choice4Of4 tileMapMetadata.TileMap)
@@ -1014,7 +1024,7 @@ module FieldData =
                             let propObjects = enumerable<TmxObject> group.Objects |> Seq.map (fun propObject -> (group, propObject)) |> Seq.toList
                             (tileMap, propObjects, None)
                         else (tileMap, [], None)
-                    | Choice3Of4 (tileMap, origin) ->
+                    | Choice3Of4 (_, tileMap, origin) ->
                         if tileMap.ObjectGroups.Contains Constants.Field.PropsGroupName then
                             let group = tileMap.ObjectGroups.Item Constants.Field.PropsGroupName
                             let propObjects = enumerable<TmxObject> group.Objects |> Seq.map (fun propObject -> (group, propObject)) |> Seq.toList
@@ -1112,7 +1122,7 @@ module FieldData =
         match tryGetTileMap omniSeedState fieldData with
         | Some tileMapChc ->
             match tileMapChc with
-            | Choice3Of4 (tileMap, origin) ->
+            | Choice3Of4 (_, tileMap, origin) ->
                 match fieldData.FieldTileMap with
                 | FieldRandom (_, _, _, _, _, _) ->
                     let tileMapPerimeter = box3 v3Zero (v3 (single tileMap.Width * single tileMap.TileWidth) (single tileMap.Height * single tileMap.TileHeight) 0.0f)
@@ -1155,7 +1165,6 @@ module Data =
           Techs : Map<TechType, TechData>
           Archetypes : Map<ArchetypeType, ArchetypeData>
           Characters : Map<CharacterType, CharacterData>
-          Shops : Map<ShopType, ShopData>
           Battles : Map<BattleType, BattleData>
           Encounters : Map<EncounterType, EncounterData>
           TechAnimations : Map<TechType, TechAnimationData>
@@ -1180,7 +1189,6 @@ module Data =
               readSheetVsync Assets.Data.TechDataFilePath (fun (data : TechData) -> data.TechType)
               readSheetVsync Assets.Data.ArchetypeDataFilePath (fun (data : ArchetypeData) -> data.ArchetypeType)
               readSheetVsync Assets.Data.CharacterDataFilePath (fun data -> data.CharacterType)
-              readSheetVsync Assets.Data.ShopDataFilePath (fun data -> data.ShopType)
               readSheetVsync Assets.Data.BattleDataFilePath (fun data -> data.BattleType)
               readSheetVsync Assets.Data.EncounterDataFilePath (fun data -> data.EncounterType)
               readSheetVsync Assets.Data.TechAnimationDataFilePath (fun data -> data.TechType)
@@ -1194,12 +1202,11 @@ module Data =
           Techs = cast results.[4]
           Archetypes = cast results.[5]
           Characters = cast results.[6]
-          Shops = cast results.[7]
-          Battles = cast results.[8]
-          Encounters = cast results.[9]
-          TechAnimations = cast results.[10]
-          CharacterAnimations = cast results.[11]
-          Fields = cast results.[12] }
+          Battles = cast results.[7]
+          Encounters = cast results.[8]
+          TechAnimations = cast results.[9]
+          CharacterAnimations = cast results.[10]
+          Fields = cast results.[11] }
 
     let Value =
         readFromFiles ()
