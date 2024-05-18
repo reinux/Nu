@@ -1,4 +1,5 @@
-﻿namespace Nugen
+﻿namespace Nugen.Data
+open Nugen
 
 // https://www.elecbyte.com/mugendocs/air.html
 
@@ -15,19 +16,7 @@ module NugenPatterns =
     match System.Int32.TryParse str with
     | false, _ -> None
     | true, i -> Some i
-
-type ActionId = ActionId of int
-
-type CollisionBox =
-  { l: int; r: int; t: int; b: int }
-  static member Make l t r b = { l = l; r = r; t = t; b = b }
-
-type Flip =
-  | NoFlip
-  | FlipHorizontal
-  | FlipVertical
-  | FlipBoth
-
+    
 type AnimationElement =
   { GroupNum: int
     ImageNum: int
@@ -57,23 +46,23 @@ type AirFile =
       |> List.map (fun (aid, action) -> aid, { action with Elements = List.rev action.Elements })
     { Actions = Map actions }
   
-module AirFile =
-  type State =
-    { Actions: (ActionId * Action) list
-      collisionBoxes: Map<int, CollisionBox>
-      attackCollisionBoxes: Map<int, CollisionBox>
+type State =
+  { Actions: (ActionId * Action) list
+    collisionBoxes: Map<int, CollisionBox>
+    attackCollisionBoxes: Map<int, CollisionBox>
+  }
+  static member Default =
+    { Actions = []
+      collisionBoxes = Map.empty
+      attackCollisionBoxes = Map.empty
     }
-    static member Default =
-      { Actions = []
-        collisionBoxes = Map.empty
-        attackCollisionBoxes = Map.empty
-      }
 
+module AirFile =
   let preprocessLine (line: string) =
     match line.IndexOf(';') with
     | ix when ix < 0 -> line.Trim()
     | ix -> line.Substring(0, ix).Trim()
-  
+
   let parseLine (state: State) (line: string) =
     let generalParse line =
       match line with
@@ -87,7 +76,7 @@ module AirFile =
       match line with
       | ParseRegex @"^Clsn(1|2)\[(\d+)\]\s*=\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)$"
                    [ Int clsnKind; Int clsnIx; Int l; Int t; Int r; Int b ] ->
-        let box = CollisionBox.Make l -t r -b
+        let box = CollisionBox.make l -t r -b
         match clsnKind with
         | 1 -> { state with attackCollisionBoxes =  state.attackCollisionBoxes.Add(clsnIx, box) }
         | 2 -> { state with collisionBoxes = state.collisionBoxes.Add(clsnIx, box) }

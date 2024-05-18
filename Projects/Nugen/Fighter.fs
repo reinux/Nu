@@ -174,33 +174,20 @@ type Fighter =
         Position = position }
     
 module Fighter =
-    let rec eatActionFrames (elements: AnimationElement list) (frame: int) =
-      match elements with
+    let rec eatActionFrames (frames: FrameInfo list) (numFrames: int) =
+      match frames with
       | { Duration = -1 } as element::_ -> element
-      | element::elements ->
-        if element.Duration < frame then
-          eatActionFrames elements (frame - element.Duration)
-        else element
+      | frame::frames ->
+        if frame.Duration < numFrames then
+          eatActionFrames frames (numFrames - frame.Duration)
+        else frame
       | [] -> failwith "No frames for animation"
-    let currentActionElement fighter time =
+    let currentActionFrame fighter time =
       let currentFrame = time - fighter.ActionStartTime
-      let action = FighterAssets.tenShinHan.Value.AirFile.Actions[fighter.Action.actionId]
-      let preLoop, loop =
-        List.splitAt action.LoopStartIndex action.Elements
-      let preLoopDuration =
-        preLoop
-        |> List.sumBy (fun element -> if element.Duration < 0 then 0 else element.Duration)
-        |> int64
-      let loopDuration =
-          match List.tryLast action.Elements with
-          | Some { Duration = -1 }
-          | None ->
-            System.Int64.MaxValue
-          | _ ->
-            loop |> List.sumBy (fun element -> if element.Duration < 0 then 0 else element.Duration)
-      if currentFrame < preLoopDuration then
-        false, eatActionFrames preLoop (int currentFrame)
+      let action = Characters.tenShinHan.Actions[fighter.Action.actionId]
+      if currentFrame < action.PreLoopDuration then
+        false, eatActionFrames action.PreLoopFrames (int currentFrame)
       else
-        let timeInLoop = (currentFrame - preLoopDuration) % loopDuration
-        let loopedBack = timeInLoop = 0 && currentFrame <> preLoopDuration + 1L
-        loopedBack, eatActionFrames loop (int timeInLoop)
+        let timeInLoop = (currentFrame - action.PreLoopDuration) % action.LoopDuration
+        let loopedBack = timeInLoop = 0 && currentFrame <> action.PreLoopDuration + 1L
+        loopedBack, eatActionFrames action.LoopFrames (int timeInLoop)

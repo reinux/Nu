@@ -1,8 +1,8 @@
 #r "nuget: Prime"
 #r "nuget: Magick.NET-Q8-AnyCPU"
 #r "nuget: Magick.NET.Core"
+#loasssssssssz "../FighterData.fs"
 #load "../AirFile.fs"
-#load "../FighterAssets.fs"
 
 #time "on"
 
@@ -36,7 +36,7 @@ let infos =
       img.Write(destPath, MagickFormat.Png)
       info)
 
-Array.zip (files |> Array.map Path.GetFileName) infos
+Array.zip (files |> Array.map Path.GetFileNameWithoutExtension) infos
 |> SymbolicOperators.scstring
 |> fun s -> File.WriteAllText(Path.Combine(outputDir, "fighter_frame_info"), s)
 

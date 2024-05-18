@@ -36,8 +36,10 @@
 	</Target>
 
 	<ItemGroup>
-		<Compile Include="AirFile.fs" />
-		<Compile Include="FighterAssets.fs" />
+		<Compile Include="BaseTypes.fs" />
+		<Compile Include="Data\AirFile.fs" />
+		<Compile Include="Data\FrameInfoFile.fs" />
+		<Compile Include="Characters.fs" />
 		<Compile Include="Simulants.fs" />
 		<Compile Include="Events.fs" />
 		<Compile Include="Fighter.fs" />
