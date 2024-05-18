@@ -124,7 +124,6 @@ type Fighter =
   { Health: int
     Action: ActionState
     ActionStartTime: int64
-    AirFile: AirFile
     Facing: Facing
     Position: Vector2i }
   member fighter.withAction startTime action =
@@ -165,23 +164,16 @@ type Fighter =
     { Health = 0
       Action = Standing
       ActionStartTime = 0
-      AirFile = AirFile.Default
       Facing = Rightward
       Position = v2iZero }
 
-  static member make airFile facing position =
+  static member make facing position =
     { Fighter.empty with
         Health = 100
-        AirFile = airFile
         Facing = facing
         Position = position }
     
 module Fighter =
-    let fighterSpriteAsset (ActionId group, frame) =
-      asset<Image> "TenShinHan" $"TenShinHan_%d{group}-%d{frame}"
-    let tempFighterAirFile =
-        System.IO.File.ReadAllLines("Assets/TenShinHan/TenShinHan.air")
-        |> AirFile.parse
     let rec eatActionFrames (elements: AnimationElement list) (frame: int) =
       match elements with
       | { Duration = -1 } as element::_ -> element
@@ -192,7 +184,7 @@ module Fighter =
       | [] -> failwith "No frames for animation"
     let currentActionElement fighter time =
       let currentFrame = time - fighter.ActionStartTime
-      let action = fighter.AirFile.Actions[fighter.Action.actionId]
+      let action = FighterAssets.tenShinHan.Value.AirFile.Actions[fighter.Action.actionId]
       let preLoop, loop =
         List.splitAt action.LoopStartIndex action.Elements
       let preLoopDuration =

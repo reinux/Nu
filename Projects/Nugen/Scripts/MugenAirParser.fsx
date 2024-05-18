@@ -2,6 +2,7 @@
 
 #load "../AirFile.fs"
 
+open Nugen
 open Nugen.AirFile
  
 // """
@@ -26,7 +27,7 @@ let parse lines =
   lines
   |> Seq.map preprocessLine
   |> Seq.fold parseLine State.Default
-  |> (_.actions >> AirFile.Make)
-  
-System.IO.File.ReadAllLines(@"/mnt/nu/Projects/Nugen/Scrap/kfm/kfm.air")
+  |> (_.Actions >> AirFile.Make)
+
+System.IO.File.ReadAllLines(@"Projects/Nugen/Assets/TenShinHan/TenShinHan.air")
 |> parse

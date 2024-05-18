@@ -23,6 +23,6 @@
    [Assets Assets/Gameplay [nuentity nugroup tsx tmx] [] []]]]
  [TenShinHan
   [[Assets Assets/TenShinHan [bmp png psd] [Render2d] [PsdToPng]]
-   [Assets Assets/TenShinHan [air] [] []]
+   [Assets Assets/TenShinHan [air frames] [] []]
   ]]
 ]

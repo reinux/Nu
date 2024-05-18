@@ -68,8 +68,8 @@ type Gameplay =
     static member initial =
         { Gameplay.empty with
             GameplayState = Playing
-            Player1 = Player.make LocalPlayer (Fighter.make Fighter.tempFighterAirFile Rightward (v2i -100 0))
-            Player2 = Player.make AIPlayer (Fighter.make Fighter.tempFighterAirFile Leftward (v2i 100 0))
+            Player1 = Player.make LocalPlayer (Fighter.make Rightward (v2i -100 0))
+            Player2 = Player.make AIPlayer (Fighter.make Leftward (v2i 100 0))
             CameraPosition = v2i 0 0
             RoundStartTime = 0 }
 
@@ -188,14 +188,31 @@ type GameplayDispatcher () =
                 let world = Simulants.GameplayPlayer1.SetSize textureSize.V3 world
                 just world
             | None -> just world
-
+            
+    override this.Edit(model, op, screen, world) =
+        let _, element = Fighter.currentActionElement model.Player1.Fighter model.GameplayTime
+        for cb in element.CollisionBoxes do
+            let p1 = (model.Player1.Fighter.Position + v2i cb.Value.l cb.Value.t).V2
+            let p2 = (model.Player1.Fighter.Position + v2i cb.Value.r cb.Value.b).V2
+            let l = float32 <| model.Player1.Fighter.Position.X + cb.Value.l
+            let t = float32 <| model.Player1.Fighter.Position.Y + cb.Value.t
+            let r = float32 <| model.Player1.Fighter.Position.X + cb.Value.r
+            let b = float32 <| model.Player1.Fighter.Position.Y + cb.Value.b
+            World.imGuiSegments2d true [
+                v2 l t, v2 r t
+                v2 r t, v2 r b
+                v2 r b, v2 l b
+                v2 l b, v2 l t
+            ] 1f Color.Red world
+        just model
+        
     // here we describe the content of the game including the hud, the scene, and the player
     override this.Content (gameplay, _) =
 
         [// the gui group
          Content.group Simulants.GameplayGui.Name []
 
-            [ 
+            [
              // quit
              Content.button Simulants.GameplayQuit.Name
                 [Entity.Position == v3 232.0f -144.0f 0.0f
@@ -218,7 +235,7 @@ type GameplayDispatcher () =
                    [ Entity.Position := v3 (float32 gameplay.Player1.Fighter.Position.X) (float32 gameplay.Player1.Fighter.Position.Y) 0f
                      // Entity.Elevation == 10.0f
                      // Entity.Scale := v3 3.0f 3.0f 0.0f
-                     Entity.StaticImage := Fighter.fighterSpriteAsset (ActionId currentFrame.GroupNum, currentFrame.ImageNum)
+                     Entity.StaticImage := FighterAssets.tenshinHanSpriteAsset (ActionId currentFrame.GroupNum, currentFrame.ImageNum)
                    ]
              ]
 

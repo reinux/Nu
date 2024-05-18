@@ -20,7 +20,7 @@ type ActionId = ActionId of int
 
 type CollisionBox =
   { l: int; r: int; t: int; b: int }
-  static member Make l r t b = { l = l; r = r; t = t; b = b }
+  static member Make l t r b = { l = l; r = r; t = t; b = b }
 
 type Flip =
   | NoFlip
@@ -57,18 +57,17 @@ type AirFile =
       |> List.map (fun (aid, action) -> aid, { action with Elements = List.rev action.Elements })
     { Actions = Map actions }
   
-type State =
-  { Actions: (ActionId * Action) list
-    collisionBoxes: Map<int, CollisionBox>
-    attackCollisionBoxes: Map<int, CollisionBox>
-  }
-  static member Default =
-    { Actions = []
-      collisionBoxes = Map.empty
-      attackCollisionBoxes = Map.empty
-    }
-
 module AirFile =
+  type State =
+    { Actions: (ActionId * Action) list
+      collisionBoxes: Map<int, CollisionBox>
+      attackCollisionBoxes: Map<int, CollisionBox>
+    }
+    static member Default =
+      { Actions = []
+        collisionBoxes = Map.empty
+        attackCollisionBoxes = Map.empty
+      }
 
   let preprocessLine (line: string) =
     match line.IndexOf(';') with
@@ -87,11 +86,11 @@ module AirFile =
     | (aid, action)::actions ->
       match line with
       | ParseRegex @"^Clsn(1|2)\[(\d+)\]\s*=\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)$"
-                   [ Int clsnKind; Int clsnIx; Int a; Int b; Int c; Int d ] ->
-        let box = CollisionBox.Make a b c d
+                   [ Int clsnKind; Int clsnIx; Int l; Int t; Int r; Int b ] ->
+        let box = CollisionBox.Make l -t r -b
         match clsnKind with
-        | 1 -> { state with collisionBoxes = state.collisionBoxes.Add(clsnIx, box) }
-        | 2 -> { state with attackCollisionBoxes =  state.attackCollisionBoxes.Add(clsnIx, box) }
+        | 1 -> { state with attackCollisionBoxes =  state.attackCollisionBoxes.Add(clsnIx, box) }
+        | 2 -> { state with collisionBoxes = state.collisionBoxes.Add(clsnIx, box) }
         | x -> failwith $"Invalid collision kind: {x}"
       | ParseRegex @"^(-?\d+)\s*,\s*(\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)((\s*,\s*(VH|HV|V|H|))(\s*,\s*(A|A1|(AS(\d{0,3}))?(D(\d{0,3}))?))?)?\s*$"
                    (Int groupNum :: Int imageNum :: Int offsetX :: Int offsetY :: Int duration :: _optional) ->
@@ -107,8 +106,10 @@ module AirFile =
             CollisionBoxes = state.collisionBoxes
             AttackCollisionBoxes = state.attackCollisionBoxes
           }
-        { state with Actions = (aid, { action with Elements = element::action.Elements })::actions }
+        { state with
+            Actions = (aid, { action with Elements = element::action.Elements })::actions }
       | ParseRegex @"^Clsn(1|2)(Default)?\s*\:\s*(\d+)$" [ Int _clsnKind; _default'; Int _numClsns ] ->
+        // { state with collisionBoxes = Map.empty; attackCollisionBoxes = Map.empty }
         state
       | "Loopstart" | "LoopStart" ->
         { state with Actions = (aid, { action with LoopStartIndex = action.Elements.Length })::actions }
