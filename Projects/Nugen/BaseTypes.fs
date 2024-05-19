@@ -27,7 +27,10 @@ type FrameInfo =
     HurtBoxes: Map<int, CollisionBox>
     AssetName: string
   }
-  
+  member info.CenteredAxis =
+    float32 info.Width / 2f - float32 (fst info.Axis),
+    -(float32 info.Height / 2f - float32 (snd info.Axis))
+
 type ActionInfo =
   { PreLoopFrames: FrameInfo list
     LoopFrames: FrameInfo list

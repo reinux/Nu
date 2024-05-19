@@ -54,6 +54,7 @@ type Gameplay =
       Player2: Player
       CameraPosition: Vector2i
       RoundStartTime : int64 }
+    member game.Players = [ game.Player1; game.Player2 ]
 
     // this represents the gameplay model in an unutilized state, such as when the gameplay screen is not selected.
     static member empty =
@@ -72,37 +73,39 @@ type Gameplay =
             Player2 = Player.make AIPlayer (Fighter.make Leftward (v2i 100 0))
             CameraPosition = v2i 0 0
             RoundStartTime = 0 }
-
+        
+    static member private translateKeyInput facing world =
+        let dpadH =
+            if World.isKeyboardKeyDown KeyboardKey.D world then
+                if facing = Rightward then DPadH.Forward else DPadH.Backward
+            elif World.isKeyboardKeyDown KeyboardKey.A world then
+                if facing = Rightward then DPadH.Backward else DPadH.Forward
+            else DPadH.Center
+        let dpadV =
+            if World.isKeyboardKeyDown KeyboardKey.W world then
+                DPadV.Up
+            elif World.isKeyboardKeyDown KeyboardKey.S world then
+                DPadV.Down
+            else DPadV.Center
+        let button =
+            if World.isKeyboardKeyDown KeyboardKey.J world then
+                Some FighterInputButton.LowPunch
+            elif World.isKeyboardKeyDown KeyboardKey.K world then
+                Some FighterInputButton.MediumPunch
+            elif World.isKeyboardKeyDown KeyboardKey.L world then
+                Some FighterInputButton.HighPunch
+            elif World.isKeyboardKeyDown KeyboardKey.N world then
+                Some FighterInputButton.LowKick
+            elif World.isKeyboardKeyDown KeyboardKey.M world then
+                Some FighterInputButton.MediumKick
+            elif World.isKeyboardKeyDown KeyboardKey.Comma world then
+                Some FighterInputButton.HighKick
+            else None
+        dpadH, dpadV, button
     static member update gameplay world =
         match gameplay.GameplayState with
         | Playing ->
-            // TODO: should all probably be under Fighter
-            let dpadH =
-                if World.isKeyboardKeyDown KeyboardKey.D world then
-                    DPadH.Forward
-                elif World.isKeyboardKeyDown KeyboardKey.A world then
-                    DPadH.Backward
-                else DPadH.Center
-            let dpadV =
-                if World.isKeyboardKeyDown KeyboardKey.W world then
-                    DPadV.Up
-                elif World.isKeyboardKeyDown KeyboardKey.S world then
-                    DPadV.Down
-                else DPadV.Center
-            let button =
-                if World.isKeyboardKeyDown KeyboardKey.J world then
-                    Some FighterInputButton.LowPunch
-                elif World.isKeyboardKeyDown KeyboardKey.K world then
-                    Some FighterInputButton.MediumPunch
-                elif World.isKeyboardKeyDown KeyboardKey.L world then
-                    Some FighterInputButton.HighPunch
-                elif World.isKeyboardKeyDown KeyboardKey.M world then
-                    Some FighterInputButton.LowKick
-                elif World.isKeyboardKeyDown KeyboardKey.Comma world then
-                    Some FighterInputButton.MediumKick
-                elif World.isKeyboardKeyDown KeyboardKey.Period world then
-                    Some FighterInputButton.HighKick
-                else None
+            let dpadH, dpadV, button = Gameplay.translateKeyInput gameplay.Player1.Fighter.Facing world
             let gameplay =
                 let loopedBack, _ = Fighter.currentActionFrame gameplay.Player1.Fighter gameplay.GameplayTime
                 let fighter =
@@ -127,7 +130,6 @@ type GameplayMessage =
 // this is our gameplay MMCC command type.
 type GameplayCommand =
     | StartQuitting
-    | UpdateSize
     interface Command
 
 // this extends the Screen API to expose the Gameplay model as well as the gameplay quit event.
@@ -149,7 +151,6 @@ type GameplayDispatcher () =
          Screen.DeselectingEvent => FinishQuitting
          Screen.UpdateEvent => Update
          Screen.TimeUpdateEvent => TimeUpdate
-         Simulants.GameplayPlayer1.StaticImage.ChangeEvent => UpdateSize
          ]
 
     // here we handle the above messages
@@ -180,30 +181,26 @@ type GameplayDispatcher () =
         | StartQuitting ->
             let world = World.publish () screen.QuitEvent screen world
             just world
-
-        | UpdateSize ->
-            let staticImage = Simulants.GameplayPlayer1.GetStaticImage world
-            match Metadata.tryGetTextureSize staticImage with
-            | Some textureSize ->
-                let world = Simulants.GameplayPlayer1.SetSize textureSize.V3 world
-                just world
-            | None -> just world
             
     override this.Edit(model, op, screen, world) =
         let _, frame = Fighter.currentActionFrame model.Player1.Fighter model.GameplayTime
-        for cb in frame.HitBoxes do
-            let p1 = (model.Player1.Fighter.Position + v2i cb.Value.L cb.Value.T).V2
-            let p2 = (model.Player1.Fighter.Position + v2i cb.Value.R cb.Value.B).V2
-            let l = float32 <| model.Player1.Fighter.Position.X + cb.Value.L
-            let t = float32 <| model.Player1.Fighter.Position.Y + cb.Value.T
-            let r = float32 <| model.Player1.Fighter.Position.X + cb.Value.R
-            let b = float32 <| model.Player1.Fighter.Position.Y + cb.Value.B
+        let drawBox color cb =
+            let p1 = (model.Player1.Fighter.Position + v2i cb.L cb.T).V2
+            let p2 = (model.Player1.Fighter.Position + v2i cb.R cb.B).V2
+            let l = float32 <| model.Player1.Fighter.Position.X + cb.L
+            let t = float32 <| model.Player1.Fighter.Position.Y + cb.T
+            let r = float32 <| model.Player1.Fighter.Position.X + cb.R
+            let b = float32 <| model.Player1.Fighter.Position.Y + cb.B
             World.imGuiSegments2d true [
                 v2 l t, v2 r t
                 v2 r t, v2 r b
                 v2 r b, v2 l b
                 v2 l b, v2 l t
-            ] 1f Color.Red world
+            ] 1f color world
+        for cb in frame.HitBoxes do
+            drawBox Color.Green cb.Value
+        for cb in frame.HurtBoxes do
+            drawBox Color.Red cb.Value
         just model
         
     // here we describe the content of the game including the hud, the scene, and the player
@@ -229,11 +226,13 @@ type GameplayDispatcher () =
                    [Entity.Position == v3 0.0f 150.0f 0.0f
                     Entity.Elevation == 10.0f
                     Entity.Justification == Justified (JustifyCenter, JustifyMiddle)
-                    Entity.Text := $"Offset: {currentFrame.Offset}"]
+                    Entity.Text := $"Axis: {currentFrame.CenteredAxis}"]
                    
                 Content.staticSprite Simulants.GameplayPlayer1.Name
-                   [ Entity.Position := v3 (float32 gameplay.Player1.Fighter.Position.X) (float32 gameplay.Player1.Fighter.Position.Y) 0f
-                     // Entity.Elevation == 10.0f
+                   [ Entity.Position :=
+                        v3 (float32 gameplay.Player1.Fighter.Position.X + (fst currentFrame.CenteredAxis))
+                           (float32 gameplay.Player1.Fighter.Position.Y + (snd currentFrame.CenteredAxis))
+                           0f
                      // Entity.Scale := v3 3.0f 3.0f 0.0f
                      Entity.Size := v3 (float32 currentFrame.Width) (float32 currentFrame.Height) 0f
                      Entity.StaticImage := asset<Image> "TenShinHan" currentFrame.AssetName
