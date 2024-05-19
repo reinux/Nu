@@ -20,44 +20,10 @@ type FighterInputButton =
   | MediumKick
   | HighKick
   
-type InteractionBox =
-  | HurtBox
-  | HitBox
-
-type Collider = Collider of Bounds: Box2i * Kind: InteractionBox
-
 type Facing = Rightward | Leftward
 
 type DamageDescriptor =
   { points: int }
-
-type FighterMessage =
-  | UpdateInput of DPadH * DPadV * FighterInputButton
-  | TakeDamage of DamageDescriptor
-  
-type FighterCommand =
-  | Nop
-
-type FrameDescriptor = unit
-
-type AnimationFrame =
-  { FrameDescriptor: FrameDescriptor
-    Duration: int
-    Colliders: Collider list
-    Offset: Vector2i }
-
-type Animation =
-    { AnimationFrame : Animation array }
-
-type AnimationType =
-    | JumpAnimation
-
-type Animations =
-    { Animations : Map<AnimationType, Animation> }
-
-type AnimationEndAction =
-  | Repeat
-  | TransitionTo of ActionState
 
 and ActionState =
   | Standing
@@ -89,21 +55,6 @@ and ActionState =
     | TakingDamage -> 120
     | Defeated -> 5110
     |> ActionId
-  member state.atAnimationEnd =
-    match state with
-    | Standing
-    | Crouching
-    | WalkingForward
-    | WalkingBack
-    | Running
-    | Fallen
-    | Defeated -> Repeat
-    | CrouchingToStanding
-    | Punching
-    | Kicking
-    | TakingDamage -> TransitionTo Standing
-    | StandingToCrouching -> TransitionTo Crouching
-    | Falling -> TransitionTo Fallen
   member state.acceptsInput =
     match state with
     | Standing
