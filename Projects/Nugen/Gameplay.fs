@@ -109,14 +109,12 @@ type Gameplay =
             let gameplay =
                 let loopedBack, _ = Fighter.currentActionFrame gameplay.Player1.Fighter gameplay.GameplayTime
                 let fighter =
-                    gameplay.Player1.Fighter.parseInput gameplay.GameplayTime loopedBack (dpadH, dpadV, button)
+                    gameplay.Player1.Fighter.updateInput gameplay.GameplayTime loopedBack (dpadH, dpadV, button)
                 { gameplay with Player1.Fighter = fighter }
-            match gameplay.Player1.Fighter.Action with
-            | WalkingBack ->
-                { gameplay with Player1.Fighter.Position = gameplay.Player1.Fighter.Position + v2i -1 0 }
-            | WalkingForward ->
-                { gameplay with Player1.Fighter.Position = gameplay.Player1.Fighter.Position + v2i +1 0 }
-            | _ -> gameplay
+            { gameplay with
+                Player1.Fighter = gameplay.Player1.Fighter.update gameplay.GameplayTime gameplay.Player2.Fighter
+                Player2.Fighter = gameplay.Player2.Fighter.update gameplay.GameplayTime gameplay.Player1.Fighter
+            }
         | Quit -> gameplay
 
 // this is our gameplay MMCC message type.
@@ -183,24 +181,25 @@ type GameplayDispatcher () =
             just world
             
     override this.Edit(model, op, screen, world) =
-        let _, frame = Fighter.currentActionFrame model.Player1.Fighter model.GameplayTime
-        let drawBox color cb =
-            let p1 = (model.Player1.Fighter.Position + v2i cb.L cb.T).V2
-            let p2 = (model.Player1.Fighter.Position + v2i cb.R cb.B).V2
-            let l = float32 <| model.Player1.Fighter.Position.X + cb.L
-            let t = float32 <| model.Player1.Fighter.Position.Y + cb.T
-            let r = float32 <| model.Player1.Fighter.Position.X + cb.R
-            let b = float32 <| model.Player1.Fighter.Position.Y + cb.B
+        let drawBox color position cb =
+            let p1 = (position + v2i cb.L cb.T).V2
+            let p2 = (position + v2i cb.R cb.B).V2
+            let l = float32 <| position.X + cb.L
+            let t = float32 <| position.Y + cb.T
+            let r = float32 <| position.X + cb.R
+            let b = float32 <| position.Y + cb.B
             World.imGuiSegments2d true [
                 v2 l t, v2 r t
                 v2 r t, v2 r b
                 v2 r b, v2 l b
                 v2 l b, v2 l t
             ] 1f color world
-        for cb in frame.HitBoxes do
-            drawBox Color.Green cb.Value
-        for cb in frame.HurtBoxes do
-            drawBox Color.Red cb.Value
+        for player in model.Players do
+            let _, frame = Fighter.currentActionFrame player.Fighter model.GameplayTime
+            for cb in frame.HitBoxes do
+                drawBox Color.Green player.Fighter.Position cb.Value
+            for cb in frame.HurtBoxes do
+                drawBox Color.Red player.Fighter.Position cb.Value
         just model
         
     // here we describe the content of the game including the hud, the scene, and the player
@@ -221,22 +220,31 @@ type GameplayDispatcher () =
          match gameplay.GameplayState with
          | Playing ->
             Content.groupFromFile Simulants.GameplayScene.Name "Assets/Gameplay/Scene.nugroup" [] [
-                let reloop, currentFrame = Fighter.currentActionFrame gameplay.Player1.Fighter gameplay.GameplayTime
-                Content.text Simulants.GameplayTime.Name
-                   [Entity.Position == v3 0.0f 150.0f 0.0f
-                    Entity.Elevation == 10.0f
-                    Entity.Justification == Justified (JustifyCenter, JustifyMiddle)
-                    Entity.Text := $"Axis: {currentFrame.CenteredAxis}"]
+                // Content.text Simulants.GameplayTime.Name
+                //    [Entity.Position == v3 0.0f 150.0f 0.0f
+                //     Entity.Elevation == 10.0f
+                //     Entity.Justification == Justified (JustifyCenter, JustifyMiddle)
+                //     Entity.Text := $"Axis: {currentFrame.CenteredAxis}"]
                    
-                Content.staticSprite Simulants.GameplayPlayer1.Name
-                   [ Entity.Position :=
-                        v3 (float32 gameplay.Player1.Fighter.Position.X + (fst currentFrame.CenteredAxis))
-                           (float32 gameplay.Player1.Fighter.Position.Y + (snd currentFrame.CenteredAxis))
-                           0f
-                     // Entity.Scale := v3 3.0f 3.0f 0.0f
-                     Entity.Size := v3 (float32 currentFrame.Width) (float32 currentFrame.Height) 0f
-                     Entity.StaticImage := asset<Image> "TenShinHan" currentFrame.AssetName
-                   ]
+                let playerSprite name player =
+                    let _, currentFrame = Fighter.currentActionFrame player.Fighter gameplay.GameplayTime
+                    Content.staticSprite name
+                       [ Entity.Position :=
+                            v3 (float32 player.Fighter.Position.X + (fst currentFrame.CenteredAxis))
+                               (float32 player.Fighter.Position.Y + (snd currentFrame.CenteredAxis))
+                               0f
+                         // Entity.Scale := v3 3.0f 3.0f 0.0f
+                         Entity.Flip :=
+                             match player.Fighter.Facing with
+                             | Rightward ->
+                                 Flip.FlipNone
+                             | Leftward ->
+                                 Flip.FlipH
+                         Entity.Size := v3 (float32 currentFrame.Width) (float32 currentFrame.Height) 0f
+                         Entity.StaticImage := asset<Image> "TenShinHan" currentFrame.AssetName
+                       ]
+                playerSprite Simulants.GameplayPlayer1.Name gameplay.Player1
+                playerSprite Simulants.GameplayPlayer2.Name gameplay.Player2
             ]
 
          // no scene group otherwise

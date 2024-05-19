@@ -131,7 +131,7 @@ type Fighter =
   
   /// Respond to player input. In a full implementation, the commands inputs would first be
   /// parsed by the Player type before being issued to Fighter.
-  member fighter.parseInput time loopedBack (dpadh, dpadv, button) =
+  member fighter.updateInput time loopedBack (dpadh, dpadv, button) =
     let fighter =
       let transitionTo toAction =
         { fighter with Action = toAction; ActionStartTime = time }
@@ -158,6 +158,25 @@ type Fighter =
       | Kicking, true, DPadH.Center, DPadV.Center, _ ->
         transitionTo Standing
       | _ -> fighter
+    fighter
+    
+  member fighter.update time opponent =
+    let fighter =
+      match fighter.Action, fighter.Facing with
+      | WalkingForward, Leftward
+      | WalkingBack, Rightward ->
+          { fighter with Position = fighter.Position + v2i -1 0 }
+      | WalkingForward, Rightward
+      | WalkingBack, Leftward ->
+          { fighter with Position = fighter.Position + v2i +1 0 }
+      | _ -> fighter
+    let fighter =
+      { fighter with
+          Facing =
+            if opponent.Position.X < fighter.Position.X
+            then Leftward
+            else Rightward
+      }
     fighter
 
   static member empty =
