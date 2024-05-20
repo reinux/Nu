@@ -199,14 +199,23 @@ type GameplayDispatcher () =
                Frame = snd (Fighter.currentActionFrame player.Fighter model.GameplayTime)
             |}
         let p1, p2 = deets model.Player1, deets model.Player2
-        for p1, p2 in [ p1, p2; p2, p1 ] do
-            let hits = Fighter.getCollissions p1.Fighter.Position p1.Frame.HitBoxes
+        let bodyCollisions1, bodyCollisions2 =
+            Fighter.getCollisions p1.Fighter.Position p1.Frame.HitBoxes
+                                   p2.Fighter.Position p1.Frame.HitBoxes
+            |> List.unzip
+        let p1, p2 =
+            {| p1 with Collisions = bodyCollisions1 |},
+            {| p2 with Collisions = bodyCollisions2 |}
+        for p1, p2, collissions in [ p1, p2, bodyCollisions1; p2, p1, bodyCollisions2 ] do
+            let hits = Fighter.getCollisions p1.Fighter.Position p1.Frame.HitBoxes
                                               p2.Fighter.Position p2.Frame.HurtBoxes
                        |> List.map fst
             for cb in p1.Frame.HitBoxes do
                 let color =
-                    if List.contains cb.Key hits then
-                        Color.Red
+                    if List.contains cb.Key hits
+                    then Color.Red
+                    elif List.contains cb.Key collissions
+                    then Color.Orange
                     else Color.Green
                 drawBox color p1.Fighter.Position cb.Value
             for cb in p1.Frame.HurtBoxes do

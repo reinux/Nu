@@ -164,7 +164,7 @@ module Fighter =
         let loopedBack = timeInLoop = 0 && currentFrame <> action.PreLoopDuration + 1L
         loopedBack, eatActionFrames action.LoopFrames (int timeInLoop)
         
-    let getCollissions (p1: Vector2i) (boxes1: Map<'tag, CollisionBox>)
+    let getCollisions (p1: Vector2i) (boxes1: Map<'tag, CollisionBox>)
                        (p2: Vector2i) (boxes2: Map<'tag, CollisionBox>) =
       [ for b1 in boxes1 do
         for b2 in boxes2 do
