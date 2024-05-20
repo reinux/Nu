@@ -7,6 +7,11 @@ type ActionId =
 type CollisionBox =
   { L: int; R: int; T: int; B: int }
   static member make l t r b = { L = l; R = r; T = t; B = b }
+  member box1.collidesWith (x1, y1) box2 (x2, y2) =
+    x1 + box1.L <= x2 + box2.R
+    && x1 + box1.R >= x2 + box2.L
+    && y1 + box1.T >= y2 + box2.B
+    && y1 + box1.B <= y2 + box2.T
 
 type Flip =
   | NoFlip

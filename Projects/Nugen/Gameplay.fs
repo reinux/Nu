@@ -40,7 +40,7 @@ type Player =
 type GameplayState =
     | Playing
     | Quit
-
+    
 // this is our MMCC model type representing gameplay.
 // this model representation uses update time, that is, time based on number of engine updates.
 // if you wish to use clock time instead (https://github.com/bryanedds/Nu/wiki/GameTime-and-its-Polymorphic-Nature),
@@ -153,7 +153,7 @@ type GameplayDispatcher () =
 
     // here we handle the above messages
     override this.Message (gameplay, message, _, world) =
-
+        
         match message with
         | StartPlaying ->
             let gameplay = Gameplay.initial
@@ -194,12 +194,23 @@ type GameplayDispatcher () =
                 v2 r b, v2 l b
                 v2 l b, v2 l t
             ] 1f color world
-        for player in model.Players do
-            let _, frame = Fighter.currentActionFrame player.Fighter model.GameplayTime
-            for cb in frame.HitBoxes do
-                drawBox Color.Green player.Fighter.Position cb.Value
-            for cb in frame.HurtBoxes do
-                drawBox Color.Red player.Fighter.Position cb.Value
+        let deets player =
+            {| Fighter = player.Fighter
+               Frame = snd (Fighter.currentActionFrame player.Fighter model.GameplayTime)
+            |}
+        let p1, p2 = deets model.Player1, deets model.Player2
+        for p1, p2 in [ p1, p2; p2, p1 ] do
+            let hits = Fighter.getCollissions p1.Fighter.Position p1.Frame.HitBoxes
+                                              p2.Fighter.Position p2.Frame.HurtBoxes
+                       |> List.map fst
+            for cb in p1.Frame.HitBoxes do
+                let color =
+                    if List.contains cb.Key hits then
+                        Color.Red
+                    else Color.Green
+                drawBox color p1.Fighter.Position cb.Value
+            for cb in p1.Frame.HurtBoxes do
+                drawBox Color.Purple p1.Fighter.Position cb.Value
         just model
         
     // here we describe the content of the game including the hud, the scene, and the player

@@ -77,9 +77,10 @@ type Fighter =
     ActionStartTime: int64
     Facing: Facing
     Position: Vector2i }
+  
   member fighter.withAction startTime action =
     { fighter with ActionStartTime = startTime; Action = action }
-  
+    
   /// Respond to player input. In a full implementation, the commands inputs would first be
   /// parsed by the Player type before being issued to Fighter.
   member fighter.updateInput time loopedBack (dpadh, dpadv, button) =
@@ -152,6 +153,7 @@ module Fighter =
           eatActionFrames frames (numFrames - frame.Duration)
         else frame
       | [] -> failwith "No frames for animation"
+      
     let currentActionFrame fighter time =
       let currentFrame = time - fighter.ActionStartTime
       let action = Characters.tenShinHan.Actions[fighter.Action.actionId]
@@ -161,3 +163,11 @@ module Fighter =
         let timeInLoop = (currentFrame - action.PreLoopDuration) % action.LoopDuration
         let loopedBack = timeInLoop = 0 && currentFrame <> action.PreLoopDuration + 1L
         loopedBack, eatActionFrames action.LoopFrames (int timeInLoop)
+        
+    let getCollissions (p1: Vector2i) (boxes1: Map<'tag, CollisionBox>)
+                       (p2: Vector2i) (boxes2: Map<'tag, CollisionBox>) =
+      [ for b1 in boxes1 do
+        for b2 in boxes2 do
+          if b1.Value.collidesWith (p1.X, p1.Y) b2.Value (p2.X, p2.Y) then
+            b1.Key, b2.Key
+      ]
