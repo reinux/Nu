@@ -102,6 +102,26 @@ type Gameplay =
                 Some FighterInputButton.HighKick
             else None
         dpadH, dpadV, button
+    static member collisions gameplay =
+        let deets player =
+            {| Fighter = player.Fighter
+               Frame = snd (Fighter.currentActionFrame player.Fighter gameplay.GameplayTime)
+            |}
+        let p1, p2 = deets gameplay.Player1, deets gameplay.Player2
+        let bodyCollisions1, bodyCollisions2 =
+            Fighter.getCollisions p1.Fighter.Position p1.Frame.HitBoxes
+                                   p2.Fighter.Position p1.Frame.HitBoxes
+            |> List.unzip
+        let hurts1 = Fighter.getCollisions p1.Fighter.Position p1.Frame.HitBoxes
+                                          p2.Fighter.Position p2.Frame.HurtBoxes
+                   |> List.map fst
+        let hurts2 = Fighter.getCollisions p2.Fighter.Position p2.Frame.HitBoxes
+                                          p1.Fighter.Position p1.Frame.HurtBoxes
+        let p1, p2 =
+            {| p1 with Collisions = bodyCollisions1; Hurts = hurts1 |},
+            {| p2 with Collisions = bodyCollisions2; Hurts = hurts2 |}
+        p1, p2
+        
     static member update gameplay world =
         match gameplay.GameplayState with
         | Playing ->
@@ -194,23 +214,8 @@ type GameplayDispatcher () =
                 v2 r b, v2 l b
                 v2 l b, v2 l t
             ] 1f color world
-        let deets player =
-            {| Fighter = player.Fighter
-               Frame = snd (Fighter.currentActionFrame player.Fighter model.GameplayTime)
-            |}
-        let p1, p2 = deets model.Player1, deets model.Player2
-        let bodyCollisions1, bodyCollisions2 =
-            Fighter.getCollisions p1.Fighter.Position p1.Frame.HitBoxes
-                                   p2.Fighter.Position p1.Frame.HitBoxes
-            |> List.unzip
-        let p1, p2 =
-            {| p1 with Collisions = bodyCollisions1 |},
-            {| p2 with Collisions = bodyCollisions2 |}
-        for p1, p2, collissions in [ p1, p2, bodyCollisions1; p2, p1, bodyCollisions2 ] do
-            let hits = Fighter.getCollisions p1.Fighter.Position p1.Frame.HitBoxes
-                                              p2.Fighter.Position p2.Frame.HurtBoxes
-                       |> List.map fst
-            for cb in p1.Frame.HitBoxes do
+        let drawBoxes player =
+            for cb in player.Frame.HitBoxes do
                 let color =
                     if List.contains cb.Key hits
                     then Color.Red
@@ -220,6 +225,9 @@ type GameplayDispatcher () =
                 drawBox color p1.Fighter.Position cb.Value
             for cb in p1.Frame.HurtBoxes do
                 drawBox Color.Purple p1.Fighter.Position cb.Value
+        let p1, p2 = Gameplay.collisions model
+        drawBoxes p1
+        drawBoxes p2
         just model
         
     // here we describe the content of the game including the hud, the scene, and the player
