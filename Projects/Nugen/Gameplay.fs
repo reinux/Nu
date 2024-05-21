@@ -102,25 +102,6 @@ type Gameplay =
                 Some FighterInputButton.HighKick
             else None
         dpadH, dpadV, button
-    static member collisions gameplay =
-        let deets player =
-            {| Fighter = player.Fighter
-               Frame = snd (Fighter.currentActionFrame player.Fighter gameplay.GameplayTime)
-            |}
-        let p1, p2 = deets gameplay.Player1, deets gameplay.Player2
-        let bodyCollisions1, bodyCollisions2 =
-            Fighter.getCollisions p1.Fighter.Position p1.Frame.HitBoxes
-                                   p2.Fighter.Position p1.Frame.HitBoxes
-            |> List.unzip
-        let hurts1 = Fighter.getCollisions p1.Fighter.Position p1.Frame.HitBoxes
-                                          p2.Fighter.Position p2.Frame.HurtBoxes
-                   |> List.map fst
-        let hurts2 = Fighter.getCollisions p2.Fighter.Position p2.Frame.HitBoxes
-                                          p1.Fighter.Position p1.Frame.HurtBoxes
-        let p1, p2 =
-            {| p1 with Collisions = bodyCollisions1; Hurts = hurts1 |},
-            {| p2 with Collisions = bodyCollisions2; Hurts = hurts2 |}
-        p1, p2
         
     static member update gameplay world =
         match gameplay.GameplayState with
@@ -199,35 +180,46 @@ type GameplayDispatcher () =
         | StartQuitting ->
             let world = World.publish () screen.QuitEvent screen world
             just world
-            
     override this.Edit(model, op, screen, world) =
-        let drawBox color position cb =
-            let p1 = (position + v2i cb.L cb.T).V2
-            let p2 = (position + v2i cb.R cb.B).V2
-            let l = float32 <| position.X + cb.L
-            let t = float32 <| position.Y + cb.T
-            let r = float32 <| position.X + cb.R
-            let b = float32 <| position.Y + cb.B
-            World.imGuiSegments2d true [
-                v2 l t, v2 r t
-                v2 r t, v2 r b
-                v2 r b, v2 l b
-                v2 l b, v2 l t
-            ] 1f color world
-        let drawBoxes player =
-            for cb in player.Frame.HitBoxes do
+        let boxPerimeter (box: Box2i) =
+            [ struct (box.Min.V2, box.TopLeft.V2)
+              struct (box.TopLeft.V2, box.TopRight.V2)
+              struct (box.TopRight.V2, box.BottomRight.V2)
+              struct (box.BottomRight.V2, box.BottomLeft.V2)
+            ]
+        let drawBoxes collisions fighter frame otherFighter otherFighterFrame =
+            let hurts =
+                Fighter.getCollisions fighter frame.HitBoxes
+                                      otherFighter otherFighterFrame.HurtBoxes
+                |> Set.map fst
+            for box in frame.HitBoxes do
                 let color =
-                    if List.contains cb.Key hits
+                    if Set.contains box.Key hurts
                     then Color.Red
-                    elif List.contains cb.Key collissions
+                    elif Set.contains box.Key collisions
                     then Color.Orange
                     else Color.Green
-                drawBox color p1.Fighter.Position cb.Value
-            for cb in p1.Frame.HurtBoxes do
-                drawBox Color.Purple p1.Fighter.Position cb.Value
-        let p1, p2 = Gameplay.collisions model
-        drawBoxes p1
-        drawBoxes p2
+                World.imGuiSegments2d
+                    true
+                    (box.Value |> Fighter.transformBox fighter |> boxPerimeter)
+                    1f color world
+            for box in frame.HurtBoxes do
+                World.imGuiSegments2d
+                    true
+                    (box.Value |> Fighter.transformBox fighter |> boxPerimeter)
+                    1f Color.Purple world
+        let _, fighter1Frame = Fighter.currentActionFrame model.Player1.Fighter model.GameplayTime
+        let _, fighter2Frame = Fighter.currentActionFrame model.Player2.Fighter model.GameplayTime
+        let collisions =
+            Fighter.getCollisions model.Player1.Fighter fighter1Frame.HitBoxes
+                                  model.Player2.Fighter fighter2Frame.HitBoxes
+        drawBoxes (Set.map fst collisions) model.Player1.Fighter fighter1Frame model.Player2.Fighter fighter2Frame
+        drawBoxes (Set.map snd collisions) model.Player2.Fighter fighter2Frame model.Player1.Fighter fighter1Frame
+        
+        for player in model.Players do
+            World.imGuiSegment2d true (player.Fighter.Position.V2 + v2 -5f -5f, player.Fighter.Position.V2 + v2 5f 5f) 1f Color.Green world
+            World.imGuiSegment2d true (player.Fighter.Position.V2 + v2 -5f 5f, player.Fighter.Position.V2 + v2 5f -5f) 1f Color.Green world
+        
         just model
         
     // here we describe the content of the game including the hud, the scene, and the player
@@ -257,10 +249,7 @@ type GameplayDispatcher () =
                 let playerSprite name player =
                     let _, currentFrame = Fighter.currentActionFrame player.Fighter gameplay.GameplayTime
                     Content.staticSprite name
-                       [ Entity.Position :=
-                            v3 (float32 player.Fighter.Position.X + (fst currentFrame.CenteredAxis))
-                               (float32 player.Fighter.Position.Y + (snd currentFrame.CenteredAxis))
-                               0f
+                       [ Entity.Position := (player.Fighter.Position.V2 + (Fighter.transformAxis player.Fighter currentFrame)).V3
                          // Entity.Scale := v3 3.0f 3.0f 0.0f
                          Entity.Flip :=
                              match player.Fighter.Facing with

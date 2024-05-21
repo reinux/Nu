@@ -164,10 +164,25 @@ module Fighter =
         let loopedBack = timeInLoop = 0 && currentFrame <> action.PreLoopDuration + 1L
         loopedBack, eatActionFrames action.LoopFrames (int timeInLoop)
         
-    let getCollisions (p1: Vector2i) (boxes1: Map<'tag, CollisionBox>)
-                       (p2: Vector2i) (boxes2: Map<'tag, CollisionBox>) =
-      [ for b1 in boxes1 do
-        for b2 in boxes2 do
-          if b1.Value.collidesWith (p1.X, p1.Y) b2.Value (p2.X, p2.Y) then
-            b1.Key, b2.Key
-      ]
+    let transformAxis fighter (frame: FrameInfo) =
+      if fighter.Facing = Leftward
+      then frame.CenteredAxis.MapX ((*) -1f)
+      else frame.CenteredAxis
+        
+    let transformBox fighter (box: Box2i) =
+      let box =
+        if fighter.Facing = Leftward
+        then Box2i(-(box.Right.X), box.Bottom.Y, box.Width, box.Height)
+        else box
+      box.Translate(fighter.Position)
+        
+    let getCollisions fighter1 (boxes1: Map<int, Box2i>) fighter2 (boxes2: Map<int, Box2i>) =
+      seq {
+        for kvp1 in boxes1 do
+        for kvp2 in boxes2 do
+          let b1 = transformBox fighter1 kvp1.Value
+          let b2 = transformBox fighter2 kvp2.Value
+          if b1.Contains b2 <> ContainmentType.Disjoint then
+            kvp1.Key, kvp2.Key
+      } |> Set
+      

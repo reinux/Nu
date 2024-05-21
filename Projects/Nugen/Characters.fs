@@ -1,4 +1,5 @@
 module Nugen.Characters
+open Nu
 open Prime
 open Nugen.Data
 
@@ -27,10 +28,10 @@ let load name =
               let trimmedFrameInfo =
                 trimmedFrameInfo.TryFind assetName
                 |> Option.defaultValue TrimmedFrameInfo.Empty
-              { Axis = trimmedFrameInfo.AxisX, trimmedFrameInfo.AxisY
+              { Axis = Vector2i(trimmedFrameInfo.AxisX, trimmedFrameInfo.AxisY)
                 Width = trimmedFrameInfo.Width
                 Height = trimmedFrameInfo.Height
-                Offset = element.Offset
+                Offset = Vector2i(fst element.Offset, snd element.Offset)
                 Duration =
                   if element.Duration < 0 then 1
                   else element.Duration

@@ -1,4 +1,5 @@
 ﻿namespace Nugen.Data
+open Nu
 open Nugen
 
 // https://www.elecbyte.com/mugendocs/air.html
@@ -25,8 +26,8 @@ type AnimationElement =
     Flip: Flip option
     BlendSource: int
     BlendDest: int
-    CollisionBoxes: Map<int, CollisionBox>
-    AttackCollisionBoxes: Map<int, CollisionBox>
+    CollisionBoxes: Map<int, Box2i>
+    AttackCollisionBoxes: Map<int, Box2i>
   }
 
 type Action =
@@ -48,8 +49,8 @@ type AirFile =
   
 type State =
   { Actions: (ActionId * Action) list
-    collisionBoxes: Map<int, CollisionBox>
-    attackCollisionBoxes: Map<int, CollisionBox>
+    collisionBoxes: Map<int, Box2i>
+    attackCollisionBoxes: Map<int, Box2i>
   }
   static member Default =
     { Actions = []
@@ -76,7 +77,7 @@ module AirFile =
       match line with
       | ParseRegex @"^Clsn(1|2)\[(\d+)\]\s*=\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)$"
                    [ Int clsnKind; Int clsnIx; Int l; Int t; Int r; Int b ] ->
-        let box = CollisionBox.make l -t r -b
+        let box = Box2i(l, -b, r - l, b - t)
         match clsnKind with
         | 1 -> { state with attackCollisionBoxes =  state.attackCollisionBoxes.Add(clsnIx, box) }
         | 2 -> { state with collisionBoxes = state.collisionBoxes.Add(clsnIx, box) }

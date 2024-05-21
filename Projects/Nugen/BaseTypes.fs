@@ -1,17 +1,10 @@
 namespace Nugen
 
+open Nu
+
 type ActionId =
   ActionId of int
     member x.Value = let (ActionId i) = x in i
-
-type CollisionBox =
-  { L: int; R: int; T: int; B: int }
-  static member make l t r b = { L = l; R = r; T = t; B = b }
-  member box1.collidesWith (x1, y1) box2 (x2, y2) =
-    x1 + box1.L <= x2 + box2.R
-    && x1 + box1.R >= x2 + box2.L
-    && y1 + box1.T >= y2 + box2.B
-    && y1 + box1.B <= y2 + box2.T
 
 type Flip =
   | NoFlip
@@ -20,21 +13,21 @@ type Flip =
   | FlipBoth
 
 type FrameInfo =
-  { Axis: int * int
+  { Axis: Vector2i
     Width: int
     Height: int
-    Offset: int * int
+    Offset: Vector2i
     Duration: int
     Flip: Flip option
     BlendSource: int
     BlendDest: int
-    HitBoxes: Map<int, CollisionBox>
-    HurtBoxes: Map<int, CollisionBox>
+    HitBoxes: Map<int, Box2i>
+    HurtBoxes: Map<int, Box2i>
     AssetName: string
   }
   member info.CenteredAxis =
-    float32 info.Width / 2f - float32 (fst info.Axis),
-    -(float32 info.Height / 2f - float32 (snd info.Axis))
+    v2 (float32 info.Width / 2f - float32 info.Axis.X)
+      -(float32 info.Height / 2f - float32 info.Axis.Y)
 
 type ActionInfo =
   { PreLoopFrames: FrameInfo list
