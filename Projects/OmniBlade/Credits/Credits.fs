@@ -37,8 +37,7 @@ type CreditsDispatcher () =
     inherit ScreenDispatcher<Credits, CreditsMessage, CreditsCommand> (Credits.empty)
 
     override this.Definitions (_, _) =
-        [Entity.StaticImage.ChangeEvent => StartScrolling
-         Screen.SelectEvent => StartScrolling
+        [Screen.SelectEvent => StartScrolling
          Screen.UpdateEvent => Scroll]
 
     override this.Message (credits, message, _, _) =
@@ -65,9 +64,10 @@ type CreditsDispatcher () =
                  Entity.StaticImage == Assets.Default.Black
                  Entity.Absolute == true]
              Content.button "Quit"
-                [Entity.Position == v3 306.0f -246.0f 0.0f; Entity.Elevation == Constants.Field.GuiElevation; Entity.Size == v3 144.0f 48.0f 0.0f
-                 Entity.UpImage == Assets.Gui.ButtonShortUpImage
-                 Entity.DownImage == Assets.Gui.ButtonShortDownImage
+                [Entity.Position == v3 324.0f -258.0f 0.0f; Entity.Elevation == Constants.Field.GuiElevation; Entity.Size == v3 144.0f 48.0f 0.0f
+                 Entity.UpImage == Assets.Gui.ButtonClearUpImage
+                 Entity.DownImage == Assets.Gui.ButtonClearDownImage
+                 Entity.TextColor == Color.White.WithA8 (byte 127)
                  Entity.Text == "Quit"
                  Entity.ClickEvent => StartQuitting]
              Content.panel "Panel"
@@ -121,8 +121,8 @@ type CreditsDispatcher () =
                  Content.text "Space 7" []
                  Content.text "- Supporters -" [Entity.Text == "- Supporters -"]
                  Content.text "Rei Miyasaka" [Entity.Text == "Rei Miyasaka"]
-                 Content.text "Chris Reynolds" [Entity.Text == "Chris Reynolds"]
                  Content.text "pauloud" [Entity.Text == "pauloud"]
+                 Content.text "Chris Reynolds" [Entity.Text == "Chris Reynolds"]
                  Content.text "arsmilitaris" [Entity.Text == "arsmilitaris"]
                  Content.text "ibrahim324" [Entity.Text == "ibrahim324"]
                  Content.text "Separator B" []
@@ -130,4 +130,4 @@ type CreditsDispatcher () =
                  Content.text "Separator B 3" []
                  Content.text "Separator B 4" []
                  Content.text "Separator B 5" []
-                 Content.text "Thank you for playing." [Entity.Text == "Thank you for playing."]]]]
+                 Content.text "Thank you for playing." [Entity.Text == "Thank you for playing!"]]]]

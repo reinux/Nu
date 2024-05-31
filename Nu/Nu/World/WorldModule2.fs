@@ -164,11 +164,7 @@ module WorldModule2 =
             match World.getLiveness world with
             | Live ->
                 let world =
-                    let firstFrame = 
-                        match transitionTime with
-                        | UpdateTime time -> time + 1L = world.UpdateTime
-                        | ClockTime time -> time + world.ClockDelta = world.ClockTime
-                    if firstFrame then
+                    if transitionTime = world.GameTime then
                         let eventTrace = EventTrace.debug "World" "updateScreenIncoming" "IncomingStart" EventTrace.empty
                         let world = World.publishPlus () selectedScreen.IncomingStartEvent eventTrace selectedScreen false false world
                         match (selectedScreen.GetIncoming world).SongOpt with
@@ -204,35 +200,43 @@ module WorldModule2 =
                     // slide-specific behavior currently has to ignore desired screen in order to work. However, we
                     // special case it here to pay attention to desired screen when it is a non-slide screen (IE, not
                     // executing a series of slides). Additionally, to keep this hack's implementation self-contained,
-                    // we use a quick cut to the desired screen in this special-case.
+                    // we use a quick cut to the desired screen in this special case.
                     match World.getDesiredScreen world with
                     | Desire desiredScreen when desiredScreen <> selectedScreen && (desiredScreen.GetSlideOpt world).IsNone ->
-                        World.selectScreenOpt (Some (TransitionState.IdlingState world.GameTime, desiredScreen)) world
+                        let transitionTime = world.GameTime
+                        let world = World.selectScreen (IdlingState transitionTime) desiredScreen world
+                        World.updateScreenIdling transitionTime desiredScreen world
                     | DesireNone ->
                         World.selectScreenOpt None world
                     | _ ->
-                        if World.updateScreenIdling3 transitionTime slide selectedScreen world
-                        then World.setScreenTransitionStatePlus (OutgoingState world.GameTime) selectedScreen world
+                        if World.updateScreenIdling3 transitionTime slide selectedScreen world then
+                            let transitionTime = world.GameTime
+                            let world = World.setScreenTransitionStatePlus (OutgoingState transitionTime) selectedScreen world
+                            World.updateScreenOutgoing transitionTime selectedScreen world
                         else world
                 | None ->
                     match World.getDesiredScreen world with
                     | Desire desiredScreen ->
                         if desiredScreen <> selectedScreen then
-                            if world.Accompanied && world.Halted // special case to quick cut when halted in the editor
-                            then World.selectScreenOpt (Some (TransitionState.IdlingState world.GameTime, desiredScreen)) world
-                            else World.setScreenTransitionStatePlus (OutgoingState world.GameTime) selectedScreen world
+                            if world.Accompanied && world.Halted then // special case to quick cut when halted in the editor
+                                let transitionTime = world.GameTime
+                                let world = World.selectScreen (IdlingState transitionTime) desiredScreen world
+                                World.updateScreenIdling transitionTime desiredScreen world
+                            else
+                                let transitionTime = world.GameTime
+                                let world = World.setScreenTransitionStatePlus (OutgoingState transitionTime) selectedScreen world
+                                World.updateScreenOutgoing transitionTime selectedScreen world
                         else world
-                    | DesireNone -> World.setScreenTransitionStatePlus (OutgoingState world.GameTime) selectedScreen world
+                    | DesireNone ->
+                        let transitionTime = world.GameTime
+                        let world = World.setScreenTransitionStatePlus (OutgoingState transitionTime) selectedScreen world
+                        World.updateScreenOutgoing transitionTime selectedScreen world
                     | DesireIgnore -> world
             | Dead -> world
 
         static member private updateScreenOutgoing transitionTime (selectedScreen : Screen) (world : World) =
             let world =
-                let firstFrame =
-                    match transitionTime with
-                    | UpdateTime time -> time + 1L = world.UpdateTime
-                    | ClockTime time -> time + world.ClockDelta = world.ClockTime
-                if firstFrame then
+                if transitionTime = world.GameTime then
                     let incoming = selectedScreen.GetIncoming world
                     let outgoing = selectedScreen.GetOutgoing world
                     match outgoing.SongOpt with
@@ -265,7 +269,9 @@ module WorldModule2 =
             match World.getLiveness world with
             | Live ->
                 if World.updateScreenTransition3 Outgoing selectedScreen world then
-                    let world = World.setScreenTransitionStatePlus (IdlingState world.GameTime) selectedScreen world
+                    let transitionTime = world.GameTime
+                    let world = World.setScreenTransitionStatePlus (IdlingState transitionTime) selectedScreen world
+                    let world = World.updateScreenIdling transitionTime selectedScreen world
                     let world =
                         match World.getLiveness world with
                         | Live ->
@@ -287,13 +293,18 @@ module WorldModule2 =
                                     | DesireIgnore -> None
                         match destinationOpt with
                         | Some destination ->
-                            if destination <> selectedScreen
-                            then World.selectScreen (IncomingState world.GameTime) destination world
+                            if destination <> selectedScreen then
+                                let transitionTime = world.GameTime
+                                let world = World.selectScreen (IncomingState transitionTime) destination world
+                                World.updateScreenIncoming transitionTime destination world
                             else world
                         | None ->
                             let world = World.selectScreenOpt None world
                             match World.getDesiredScreen world with // handle the possibility that screen deselect event changed destination
-                            | Desire destination -> World.selectScreen (IncomingState world.GameTime) destination world
+                            | Desire destination ->
+                                let transitionTime = world.GameTime
+                                let world = World.selectScreen (IncomingState transitionTime) destination world
+                                World.updateScreenIncoming transitionTime destination world
                             | DesireNone -> world
                             | DesireIgnore -> world
                     | Dead -> world
@@ -319,13 +330,17 @@ module WorldModule2 =
             | Some selectedScreen ->
                 if  selectedScreen <> destination &&
                     not (World.getSelectedScreenTransitioning world) then
+                    let transitionTime = world.GameTime
                     let world = World.setScreenTransitionDestinationOpt (Some destination) world
-                    let world = World.setScreenTransitionStatePlus (OutgoingState world.GameTime) selectedScreen world
+                    let world = World.setScreenTransitionStatePlus (OutgoingState transitionTime) selectedScreen world
+                    let world = World.updateScreenOutgoing transitionTime selectedScreen world
                     (true, world)
                 else (false, world)
             | None ->
-                let world = World.setScreenTransitionStatePlus (IncomingState world.GameTime) destination world
+                let transitionTime = world.GameTime
+                let world = World.setScreenTransitionStatePlus (IncomingState transitionTime) destination world
                 let world = World.setSelectedScreen destination world
+                let world = World.updateScreenIncoming transitionTime destination world
                 (true, world)
 
         /// Transition to the given screen.
@@ -646,7 +661,7 @@ module WorldModule2 =
                             if eventNamesLength >= 6 then
                                 let entityAddress = rtoa (Array.skip 3 eventNames)
                                 let entity = Nu.Entity entityAddress
-                                match World.tryGetKeyedValueFast<Guid, UMap<Entity Address, int>> (EntityChangeCountsId, world) with
+                                match World.tryGetKeyedValueFast<UMap<Entity Address, int>> (EntityChangeCountsKey, world) with
                                 | (true, entityChangeCounts) ->
                                     match entityChangeCounts.TryGetValue entityAddress with
                                     | (true, entityChangeCount) ->
@@ -661,17 +676,17 @@ module WorldModule2 =
                                                 elif entityChangeCount = 1 then World.setEntityPublishChangeEvents true entity world |> snd'
                                                 else world
                                             else world
-                                        World.addKeyedValue EntityChangeCountsId entityChangeCounts world
+                                        World.mapKeyValueStore (SUMap.add EntityChangeCountsKey entityChangeCounts) world // no event
                                     | (false, _) ->
                                         if not subscribing then failwithumf ()
                                         let world = if entity.Exists world then World.setEntityPublishChangeEvents true entity world |> snd' else world
-                                        World.addKeyedValue EntityChangeCountsId (UMap.add entityAddress 1 entityChangeCounts) world
+                                        World.mapKeyValueStore (SUMap.add EntityChangeCountsKey (UMap.add entityAddress 1 entityChangeCounts)) world // no event
                                 | (false, _) ->
                                     if not subscribing then failwithumf ()
                                     let config = World.getCollectionConfig world
                                     let entityChangeCounts = UMap.makeEmpty HashIdentity.Structural config
                                     let world = if entity.Exists world then World.setEntityPublishChangeEvents true entity world |> snd' else world
-                                    World.addKeyedValue EntityChangeCountsId (UMap.add entityAddress 1 entityChangeCounts) world
+                                    World.mapKeyValueStore (SUMap.add EntityChangeCountsKey (UMap.add entityAddress 1 entityChangeCounts)) world // no event
                             else world
                         if  Array.contains Address.WildcardName eventNames ||
                             Array.contains Address.EllipsisName eventNames then
@@ -2041,7 +2056,9 @@ module EntityPropertyDescriptor =
             propertyName = Constants.Engine.FacetNamesPropertyName ||
             propertyName = Constants.Engine.PropagatedDescriptorOptPropertyName ||
             propertyName = "Rotation" ||
-            propertyName = "RotationLocal" then
+            propertyName = "RotationLocal" ||
+            propertyName = "Light" ||
+            propertyName = "LightProbe" then
             false
         else
             propertyName = "Degrees" ||

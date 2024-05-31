@@ -50,7 +50,7 @@ module Gaia =
     let mutable private CollapseEntityHierarchy = false
     let mutable private ShowSelectedEntity = false
     let mutable private RightClickPosition = v2Zero
-    let mutable private FocusedPropertyDescriptorOpt = Option<PropertyDescriptor * Simulant>.None
+    let mutable private PropertyFocusedOpt = Option<PropertyDescriptor * Simulant>.None
     let mutable private PropertyEditorFocusRequested = false
     let mutable private RntityHierarchySearchRequested = false
     let mutable private AssetViewerSearchRequested = false
@@ -65,6 +65,7 @@ module Gaia =
     let mutable private OpenProjectEditMode = "Title"
     let mutable private OpenProjectImperativeExecution = false
     let mutable private NewProjectName = "MyGame"
+    let mutable private NewProjectType = "Empty"
     let mutable private NewGroupDispatcherName = nameof GroupDispatcher
     let mutable private NewEntityDispatcherName = null // this will be initialized on start
     let mutable private NewEntityOverlayName = "(Default Overlay)"
@@ -312,8 +313,8 @@ Collapsed=0
 DockId=0x0000000C,0
 
 [Window][Create Nu Project... *EDITOR RESTART REQUIRED!*]
-Pos=661,488
-Size=621,105
+Pos=699,495
+Size=524,138
 Collapsed=0
 
 [Window][Choose a project .dll... *EDITOR RESTART REQUIRED!*]
@@ -490,20 +491,27 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
         selectGroup group
         world
 
-    let private selectEntityOpt entityOpt world =
+    let rec private focusPropertyOpt targetOpt world =
+        match targetOpt with // special case for selecting property of non-entity to force deselection of entity
+        | Some (_, simulant : Simulant) when not (simulant :? Entity) -> selectEntityOpt None world
+        | Some _ | None -> ()
+        PropertyFocusedOpt <- targetOpt
+
+    and private selectEntityOpt entityOpt world =
 
         if entityOpt <> SelectedEntityOpt then
 
             // try to focus on same entity property
-            match FocusedPropertyDescriptorOpt with
+            match PropertyFocusedOpt with
             | Some (propertyDescriptor, :? Entity) ->
                 match entityOpt with
                 | Some entity ->
                     match world |> EntityPropertyDescriptor.getPropertyDescriptors entity |> Seq.filter (fun pd -> pd.PropertyName = propertyDescriptor.PropertyName) |> Seq.tryHead with
-                    | Some propertyDescriptor -> FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, entity)
-                    | None -> FocusedPropertyDescriptorOpt <- None
-                | Some _ | None -> FocusedPropertyDescriptorOpt <- None
-            | Some _ | None -> ()
+                    | Some propertyDescriptor -> focusPropertyOpt (Some (propertyDescriptor, entity)) world
+                    | None -> focusPropertyOpt None world
+                | Some _ | None -> focusPropertyOpt None world
+            | Some _ -> focusPropertyOpt None world
+            | None -> ()
 
             // make sure entity properties are showing5
             if entityOpt.IsSome then ImGui.SetWindowFocus "Entity Properties"
@@ -519,7 +527,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
         SelectedEntityOpt <- entityOpt
 
     let private deselectEntity world =
-        FocusedPropertyDescriptorOpt <- None
+        focusPropertyOpt None world
         selectEntityOpt None world
 
     let private tryUndo world =
@@ -686,7 +694,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
             selectScreen screen
             let world = selectGroupInitial screen world
             selectEntityOpt None world
-            FocusedPropertyDescriptorOpt <- None
+            focusPropertyOpt None world
             (Cascade, world)
         | None -> (Cascade, world) // just keep current group selection and screen if no screen selected
 
@@ -1104,7 +1112,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                             then Log.info ("Code compiled with the following warnings (these may disable debugging of reloaded code):\n" + errorStr)
                             else Log.info "Code compiled with no warnings."
                             Log.info "Updating code..."
-                            FocusedPropertyDescriptorOpt <- None // drop any reference to old property type
+                            focusPropertyOpt None world // drop any reference to old property type
                             let world = World.updateLateBindings FsiSession.DynamicAssemblies world // replace references to old types
                             Log.info "Code updated."
                             world
@@ -1757,10 +1765,10 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                         if ImGui.ColorEdit4 ("##mpAlbedo", &v)
                         then setPropertyValue { mp with AlbedoOpt = Some (color v.X v.Y v.Z v.W) } propertyDescriptor simulant world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     world
                 | None -> world
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         ImGui.SameLine ()
         ImGui.Text "AlbedoOpt"
 
@@ -1780,10 +1788,10 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                         if ImGui.SliderFloat ("##mpRoughness", &roughness, 0.0f, 10.0f)
                         then setPropertyValue { mp with RoughnessOpt = Some roughness } propertyDescriptor simulant world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     world
                 | None -> world
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         ImGui.SameLine ()
         ImGui.Text "RoughnessOpt"
 
@@ -1803,10 +1811,10 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                         if ImGui.SliderFloat ("##mpMetallic", &metallic, 0.0f, 10.0f)
                         then setPropertyValue { mp with MetallicOpt = Some metallic } propertyDescriptor simulant world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     world
                 | None -> world
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         ImGui.SameLine ()
         ImGui.Text "MetallicOpt"
 
@@ -1826,10 +1834,10 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                         if ImGui.SliderFloat ("##mpAmbientOcclusion", &ambientOcclusion, 0.0f, 10.0f)
                         then setPropertyValue { mp with AmbientOcclusionOpt = Some ambientOcclusion } propertyDescriptor simulant world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     world
                 | None -> world
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         ImGui.SameLine ()
         ImGui.Text "AmbientOcclusionOpt"
 
@@ -1849,10 +1857,10 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                         if ImGui.SliderFloat ("##mpEmission", &emission, 0.0f, 10.0f)
                         then setPropertyValue { mp with EmissionOpt = Some emission } propertyDescriptor simulant world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     world
                 | None -> world
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         ImGui.SameLine ()
         ImGui.Text "EmissionOpt"
 
@@ -1872,10 +1880,10 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                         if ImGui.SliderFloat ("##mpHeight", &height, 0.0f, 10.0f)
                         then setPropertyValue { mp with HeightOpt = Some height } propertyDescriptor simulant world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     world
                 | None -> world
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         ImGui.SameLine ()
         ImGui.Text "HeightOpt"
 
@@ -1895,10 +1903,10 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                         if ImGui.Checkbox ("##mpIgnoreLightMaps", &ignoreLightMaps)
                         then setPropertyValue { mp with IgnoreLightMapsOpt = Some ignoreLightMaps } propertyDescriptor simulant world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     world
                 | None -> world
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         ImGui.SameLine ()
         ImGui.Text "IgnoreLightMapsOpt"
 
@@ -1918,10 +1926,10 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                         if ImGui.InputFloat ("##mpOpaqueDistance", &opaqueDistance)
                         then setPropertyValue { mp with OpaqueDistanceOpt = Some opaqueDistance } propertyDescriptor simulant world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     world
                 | None -> world
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         ImGui.SameLine ()
         ImGui.Text "OpaqueDistanceOpt"
 
@@ -1948,37 +1956,37 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
         let mutable filterWalkableLowHeightSpans = nc.FilterWalkableLowHeightSpans
         let mutable partitionTypeStr = scstring nc.PartitionType
         if ImGui.SliderFloat ("CellSize", &cellSize, 0.01f, 1.0f, "%.2f") then changed <- true
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         if ImGui.SliderFloat ("CellHeight", &cellHeight, 0.01f, 1.0f, "%.2f") then changed <- true
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         if ImGui.SliderFloat ("AgentHeight", &agentHeight, 0.1f, 5.0f, "%.2f") then changed <- true
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         if ImGui.SliderFloat ("AgentRadius", &agentRadius, 0.0f, 5.0f, "%.2f") then changed <- true
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         if ImGui.SliderFloat ("AgentClimbMax", &agentClimbMax, 0.1f, 5.0f, "%.2f") then changed <- true
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         if ImGui.SliderFloat ("AgentSlopeMax", &agentSlopeMax, 1.0f, 90.0f, "%.0f") then changed <- true
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         if ImGui.SliderInt ("RegionSizeMin", &regionSizeMin, 1, 150) then changed <- true
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         if ImGui.SliderInt ("RegionSizeMerge", &regionSizeMerge, 1, 150) then changed <- true
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         if ImGui.SliderFloat ("EdgeLengthMax", &edgeLengthMax, 0.0f, 50.0f, "%.1f") then changed <- true
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         if ImGui.SliderFloat ("EdgeErrorMax", &edgeErrorMax, 0.1f, 3f, "%.1f") then changed <- true
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         if ImGui.SliderInt ("VertPerPoly", &vertsPerPolygon, 3, 12) then changed <- true
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         if ImGui.SliderFloat ("DetailSampleDistance", &detailSampleDistance, 0.0f, 16.0f, "%.1f") then changed <- true
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         if ImGui.SliderFloat ("DetailSampleErrorMax", &detailSampleErrorMax, 0.0f, 16.0f, "%.1f") then changed <- true        
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         if ImGui.Checkbox ("FilterLowHangingObstacles", &filterLowHangingObstacles) then changed <- true
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         if ImGui.Checkbox ("FilterLedgeSpans", &filterLedgeSpans) then changed <- true
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         if ImGui.Checkbox ("FilterWalkableLowHeightSpans", &filterWalkableLowHeightSpans) then changed <- true
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         if ImGui.BeginCombo ("ParitionType", partitionTypeStr, ImGuiComboFlags.HeightLarge) then
             let partitionTypeStrs = Array.map (fun (ptv : RcPartitionType) -> ptv.Name) RcPartitionType.Values
             for partitionTypeStr' in partitionTypeStrs do
@@ -1987,7 +1995,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                         partitionTypeStr <- partitionTypeStr'
                         changed <- true
             ImGui.EndCombo ()
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         let world =
             if changed then
                 let nc =
@@ -2037,7 +2045,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                                 Pasts <- pasts
                                 world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     let world =
                         if ImGui.BeginDragDropTarget () then
                             let world =
@@ -2057,14 +2065,14 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                             ImGui.EndDragDropTarget ()
                             world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     ImGui.SameLine ()
                     ImGui.PushID ("##matAlbedoImagePick")
                     if ImGui.Button ("V", v2Dup 19.0f) then searchAssetViewer ()
                     ImGui.PopID ()
                     world
                 | None -> world
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         ImGui.SameLine ()
         ImGui.Text "AlbedoImageOpt"
 
@@ -2089,7 +2097,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                                 Pasts <- pasts
                                 world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     let world =
                         if ImGui.BeginDragDropTarget () then
                             let world =
@@ -2109,14 +2117,14 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                             ImGui.EndDragDropTarget ()
                             world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     ImGui.SameLine ()
                     ImGui.PushID ("##matRoughnessImagePick")
                     if ImGui.Button ("V", v2Dup 19.0f) then searchAssetViewer ()
                     ImGui.PopID ()
                     world
                 | None -> world
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         ImGui.SameLine ()
         ImGui.Text "RoughnessImageOpt"
 
@@ -2141,7 +2149,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                                 Pasts <- pasts
                                 world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     let world =
                         if ImGui.BeginDragDropTarget () then
                             let world =
@@ -2161,14 +2169,14 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                             ImGui.EndDragDropTarget ()
                             world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     ImGui.SameLine ()
                     ImGui.PushID ("##matMetallicImagePick")
                     if ImGui.Button ("V", v2Dup 19.0f) then searchAssetViewer ()
                     ImGui.PopID ()
                     world
                 | None -> world
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         ImGui.SameLine ()
         ImGui.Text "MetallicImageOpt"
 
@@ -2193,7 +2201,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                                 Pasts <- pasts
                                 world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     let world =
                         if ImGui.BeginDragDropTarget () then
                             let world =
@@ -2213,14 +2221,14 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                             ImGui.EndDragDropTarget ()
                             world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     ImGui.SameLine ()
                     ImGui.PushID ("##matAmbientOcclusionImagePick")
                     if ImGui.Button ("V", v2Dup 19.0f) then searchAssetViewer ()
                     ImGui.PopID ()
                     world
                 | None -> world
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         ImGui.SameLine ()
         ImGui.Text "AmbientOcclusionImageOpt"
 
@@ -2245,7 +2253,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                                 Pasts <- pasts
                                 world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     let world =
                         if ImGui.BeginDragDropTarget () then
                             let world =
@@ -2265,14 +2273,14 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                             ImGui.EndDragDropTarget ()
                             world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     ImGui.SameLine ()
                     ImGui.PushID ("##matEmissionImagePick")
                     if ImGui.Button ("V", v2Dup 19.0f) then searchAssetViewer ()
                     ImGui.PopID ()
                     world
                 | None -> world
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         ImGui.SameLine ()
         ImGui.Text "EmissionImageOpt"
 
@@ -2297,7 +2305,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                                 Pasts <- pasts
                                 world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     let world =
                         if ImGui.BeginDragDropTarget () then
                             let world =
@@ -2317,14 +2325,14 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                             ImGui.EndDragDropTarget ()
                             world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     ImGui.SameLine ()
                     ImGui.PushID ("##matNormalImagePick")
                     if ImGui.Button ("V", v2Dup 19.0f) then searchAssetViewer ()
                     ImGui.PopID ()
                     world
                 | None -> world
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         ImGui.SameLine ()
         ImGui.Text "NormalImageOpt"
 
@@ -2349,7 +2357,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                                 Pasts <- pasts
                                 world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     let world =
                         if ImGui.BeginDragDropTarget () then
                             let world =
@@ -2369,14 +2377,14 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                             ImGui.EndDragDropTarget ()
                             world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     ImGui.SameLine ()
                     ImGui.PushID ("##matHeightImagePick")
                     if ImGui.Button ("V", v2Dup 19.0f) then searchAssetViewer ()
                     ImGui.PopID ()
                     world
                 | None -> world
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
         ImGui.SameLine ()
         ImGui.Text "HeightImageOpt"
 
@@ -2396,12 +2404,12 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                         if ImGui.Checkbox ("##matTwoSided", &twoSided)
                         then setPropertyValue { m with TwoSidedOpt = Some twoSided } propertyDescriptor simulant world
                         else world
-                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                    if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                     world
                 | None -> world
         ImGui.SameLine ()
         ImGui.Text "TwoSidedOpt"
-        if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+        if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
 
         // fin
         world
@@ -2789,7 +2797,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                     if Some facetNameSelectable = facetNameSelectablePicked then ImGui.SetScrollHereY -0.015f
                     if facetNameSelectable = facetName then ImGui.SetItemDefaultFocus ()
                 ImGui.EndCombo ()
-            if not last && ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (facetNamesPropertyDescriptor, entity :> Simulant)
+            if not last && ImGui.IsItemFocused () then focusPropertyOpt (Some (facetNamesPropertyDescriptor, entity :> Simulant)) world
             if facetName <> facetNameEmpty then facetNamesValue' <- Set.add facetName facetNamesValue'
         ImGui.Unindent ()
         if changed
@@ -2846,17 +2854,17 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                                                 ShowRenameEntityDialog <- true
                                         else ImGui.Text "Name"
                                     | _ -> ()
-                                    if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- None
+                                    if ImGui.IsItemFocused () then focusPropertyOpt None world
                                     world
                                 elif propertyDescriptor.PropertyName = Constants.Engine.ModelPropertyName then
                                     let mutable clickToEditModel = "*click to view*"
                                     ImGui.InputText ("Model", &clickToEditModel, uint clickToEditModel.Length, ImGuiInputTextFlags.ReadOnly) |> ignore<bool>
                                     if ImGui.IsItemFocused () then
-                                        FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                                        focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                                         PropertyEditorFocusRequested <- true
                                     world
                                 else
-                                    let focusProperty = fun () -> if ImGui.IsItemFocused () then FocusedPropertyDescriptorOpt <- Some (propertyDescriptor, simulant)
+                                    let focusProperty = fun () -> if ImGui.IsItemFocused () then focusPropertyOpt (Some (propertyDescriptor, simulant)) world
                                     let mutable replaced = false
                                     let replaceProperty =
                                         ReplaceProperty
@@ -2896,7 +2904,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                 world propertyDescriptorses.Pairs
         let appendProperties =
             { Snapshot = snapshot
-              UnfocusProperty = fun world -> FocusedPropertyDescriptorOpt <- None; world }
+              UnfocusProperty = fun world -> focusPropertyOpt None world; world }
         World.edit (AppendProperties appendProperties) simulant world
 
     let private imGuiViewportManipulation world =
@@ -3585,7 +3593,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
             PropertyEditorFocusRequested <- false
         if ImGui.Begin ("Edit Property", ImGuiWindowFlags.NoNav) then
             let world =
-                match FocusedPropertyDescriptorOpt with
+                match PropertyFocusedOpt with
                 | Some (propertyDescriptor, simulant) when
                     World.getExists simulant world &&
                     propertyDescriptor.PropertyType <> typeof<ComputedProperty> ->
@@ -3988,37 +3996,53 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
 
     let private imGuiNewProjectDialog world =
 
-        // ensure template directory exists
+        // prompt user to create new project
         let programDir = PathF.GetDirectoryName (Reflection.Assembly.GetEntryAssembly().Location)
-        let slnDir = PathF.GetFullPath (programDir + "/../../../../..")
-        let templateDir = PathF.GetFullPath (programDir + "/../../../../Nu.Template")
-        if Directory.Exists templateDir then
+        let title = "Create Nu Project... *EDITOR RESTART REQUIRED!*"
+        if not (ImGui.IsPopupOpen title) then ImGui.OpenPopup title
+        if ImGui.BeginPopupModal (title, &ShowNewProjectDialog) then
+            ImGui.Text "Project Name"
+            ImGui.SameLine ()
+            ImGui.InputText ("##newProjectName", &NewProjectName, 4096u) |> ignore<bool>
+            NewProjectName <- NewProjectName.Replace(" ", "").Replace("\t", "").Replace(".", "")
+            ImGui.Text "Project Type"
+            ImGui.SameLine ()
+            if ImGui.BeginCombo ("##newProjectType", NewProjectType) then
+                for projectType in ["Empty"; "Game"] do
+                    if ImGui.Selectable projectType then
+                        NewProjectType <- projectType
+                ImGui.EndCombo ()
+            let projectTypeDescription =
+                match NewProjectType with
+                | "Empty" -> "Create an empty game project. This contains the minimum code needed to experiment freely with Nu in a sandbox environment."
+                | "Game" | _ -> "Create a full game project. This contains the structures and pieces that embody the best practices of Nu usage."
+            ImGui.Separator ()
+            ImGui.TextWrapped ("Description: " + projectTypeDescription)
+            ImGui.Separator ()
+            let projectsDir = PathF.GetFullPath (programDir + "/../../../../../Projects")
+            let newProjectDir = PathF.GetFullPath (projectsDir + "/" + NewProjectName)
+            let newProjectDllPath = newProjectDir + "/bin/" + Constants.Gaia.BuildName + "/net8.0/" + NewProjectName + ".dll"
+            let newFileName = NewProjectName + ".fsproj"
+            let newProject = PathF.GetFullPath (newProjectDir + "/" + newFileName)
+            let validName = not (String.IsNullOrWhiteSpace NewProjectName) && Array.notExists (fun char -> NewProjectName.Contains (string char)) (PathF.GetInvalidPathChars ())
+            if not validName then ImGui.Text "Invalid project name!"
+            let validDirectory = not (Directory.Exists newProjectDir)
+            if not validDirectory then ImGui.Text "Project already exists!"
+            if validName && validDirectory && (ImGui.Button "Create" || ImGui.IsKeyReleased ImGuiKey.Enter) then
 
-            // prompt user to create new project
-            let title = "Create Nu Project... *EDITOR RESTART REQUIRED!*"
-            if not (ImGui.IsPopupOpen title) then ImGui.OpenPopup title
-            if ImGui.BeginPopupModal (title, &ShowNewProjectDialog) then
-                ImGui.Text "Project Name"
-                ImGui.SameLine ()
-                ImGui.InputText ("##newProjectName", &NewProjectName, 4096u) |> ignore<bool>
-                NewProjectName <- NewProjectName.Replace(" ", "").Replace("\t", "").Replace(".", "")
-                let templateIdentifier = PathF.Denormalize templateDir // this is what dotnet knows the template as for uninstall...
-                let templateFileName = "Nu.Template.fsproj"
-                let projectsDir = PathF.GetFullPath (programDir + "/../../../../../Projects")
-                let newProjectDir = PathF.GetFullPath (projectsDir + "/" + NewProjectName)
-                let newProjectDllPath = newProjectDir + "/bin/" + Constants.Gaia.BuildName + "/net8.0/" + NewProjectName + ".dll"
-                let newFileName = NewProjectName + ".fsproj"
-                let newProject = PathF.GetFullPath (newProjectDir + "/" + newFileName)
-                let validName = not (String.IsNullOrWhiteSpace NewProjectName) && Array.notExists (fun char -> NewProjectName.Contains (string char)) (PathF.GetInvalidPathChars ())
-                if not validName then ImGui.Text "Invalid project name!"
-                let validDirectory = not (Directory.Exists newProjectDir)
-                if not validDirectory then ImGui.Text "Project already exists!"
-                if validName && validDirectory && (ImGui.Button "Create" || ImGui.IsKeyReleased ImGuiKey.Enter) then
+                // choose a template, ensuring it exists
+                let slnDir = PathF.GetFullPath (programDir + "/../../../../..")
+                let (templateFileName, templateDir, editMode) =
+                    match NewProjectType with
+                    | "Empty" -> ("Nu.Template.Empty.fsproj", PathF.GetFullPath (programDir + "/../../../../Nu.Template.Empty"), "") // no edit modes
+                    | "Game" | _ -> ("Nu.Template.Game.fsproj", PathF.GetFullPath (programDir + "/../../../../Nu.Template.Game"), "Title") // assume Title mode
+                if Directory.Exists templateDir then
 
                     // attempt to create project files
                     try Log.info ("Creating project '" + NewProjectName + "' in '" + projectsDir + "'...")
 
                         // install nu template
+                        let templateIdentifier = PathF.Denormalize templateDir // this is what dotnet knows the template as for uninstall...
                         Directory.SetCurrentDirectory templateDir
                         Process.Start("dotnet", "new uninstall \"" + templateIdentifier + "\"").WaitForExit()
                         Process.Start("dotnet", "new install ./").WaitForExit()
@@ -4071,7 +4095,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                         Log.info ("Project '" + NewProjectName + "'" + "created.")
 
                         // configure editor to open new project then exit
-                        let gaiaState = makeGaiaState newProjectDllPath (Some "Title") true world
+                        let gaiaState = makeGaiaState newProjectDllPath (Some editMode) true world
                         let gaiaFilePath = (Assembly.GetEntryAssembly ()).Location
                         let gaiaDirectory = PathF.GetDirectoryName gaiaFilePath
                         try File.WriteAllText (gaiaDirectory + "/" + Constants.Gaia.StateFilePath, printGaiaState gaiaState)
@@ -4086,18 +4110,18 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                     // log failure
                     with exn -> Log.trace ("Failed to create new project '" + NewProjectName + "' due to: " + scstring exn)
 
-                // escape to cancel
-                if ImGui.IsKeyReleased ImGuiKey.Escape then
+                // template project missing
+                else
+                    Log.trace "Template project is missing; new project cannot be generated."
                     ShowNewProjectDialog <- false
-                    NewProjectName <- "MyGame"
 
-                // fin
-                ImGui.EndPopup ()
+            // escape to cancel
+            if ImGui.IsKeyReleased ImGuiKey.Escape then
+                ShowNewProjectDialog <- false
+                NewProjectName <- "MyGame"
 
-        // template project missing
-        else
-            Log.trace "Template project is missing; new project cannot be generated."
-            ShowNewProjectDialog <- false
+            // fin
+            ImGui.EndPopup ()
 
     let private imGuiOpenProjectDialog world =
 

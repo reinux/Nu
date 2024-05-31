@@ -20,8 +20,8 @@ module FieldExtensions =
 type FieldDispatcher () =
     inherit ScreenDispatcher<Field, FieldMessage, FieldCommand> (Field.empty)
 
-        // HACK: override songs under special conditions.
-        // NOTE: technically this should be data-driven, but it may not worth doing so for this game.
+    // HACK: override songs under special conditions.
+    // NOTE: technically this should be data-driven, but it may not worth doing so for this game.
     static let overrideSong (_ : FieldType) (_ : Advent Set) song =
         // NOTE: no special conditions in demo.
         song
@@ -128,8 +128,8 @@ type FieldDispatcher () =
                         // transition field
                         loadMetadata destinationData.FieldType
                         preloadFields destinationData.FieldType field 
-                        let field = Field.mapFieldType world.UpdateTime (constant fieldTransition.FieldType) field
-                        let field = Field.mapAvatar (Avatar.mapDirection (constant fieldTransition.FieldDirection)) field
+                        let field = Field.setFieldType world.UpdateTime fieldTransition.FieldType field
+                        let field = Field.mapAvatar (Avatar.setDirection fieldTransition.FieldDirection) field
                         let warpAvatar = WarpAvatar fieldTransition.FieldDestination
                         let songCmd =
                             match Field.getFieldSongOpt field with
@@ -137,15 +137,15 @@ type FieldDispatcher () =
                                 let fieldSong = overrideSong field.FieldType field.Advents fieldSong
                                 match currentSongOpt with
                                 | Some song when assetEq song fieldSong -> Nop
-                                | _ -> FieldCommand.PlaySong (30L, 0L, 0L, Constants.Audio.SongVolumeDefault, fieldSong)
+                                | _ -> FieldCommand.PlaySong (30L, 0L, 0L, 0.5f, fieldSong)
                             | None -> Nop
                         withSignals [warpAvatar; songCmd] field
 
                     // finish field transition
                     elif time = fieldTransition.FieldTransitionTime then
                         let startTime = field.FieldTime
-                        let field = Field.mapFieldSongTimeOpt (constant (Some startTime)) field
-                        let field = Field.mapFieldTransitionOpt (constant None) field
+                        let field = Field.setFieldSongTimeOpt (Some startTime) field
+                        let field = Field.setFieldTransitionOpt None field
                         just field
 
                     // intermediate field transition state
@@ -169,13 +169,13 @@ type FieldDispatcher () =
             // update avatar from transform if warped
             let time = world.UpdateTime
             let avatar = field.Avatar
-            let avatar = Avatar.mapPerimeter (fun (perimeter : Box3) -> perimeter.WithCenter transform.BodyCenter) avatar
+            let avatar = { avatar with Perimeter = avatar.Perimeter.WithCenter transform.BodyCenter }
             let avatar =
                 let direction = Direction.ofVector3Biased transform.BodyLinearVelocity
                 let speed = transform.BodyLinearVelocity.Magnitude
                 if speed > Constants.Field.AvatarIdleSpeedMax then
                     if direction <> avatar.Direction || avatar.CharacterAnimationType = IdleAnimation then
-                        let avatar = Avatar.mapDirection (constant direction) avatar
+                        let avatar = Avatar.setDirection direction avatar
                         Avatar.animate time WalkAnimation avatar
                     else avatar
                 else Avatar.animate time IdleAnimation avatar
@@ -216,7 +216,7 @@ type FieldDispatcher () =
             | _ -> just field
 
         | ScreenTransitioning transitioning ->
-            let field = Field.mapScreenTransitioning (constant transitioning) field
+            let field = Field.setScreenTransitioning transitioning field
             just field
 
         | FinishQuitting ->
@@ -231,7 +231,7 @@ type FieldDispatcher () =
             | None -> just field
 
         | MenuTeamOpen ->
-            let state = MenuTeam { TeamIndex = 0; TeamIndices = Map.toKeyList field.Team }
+            let state = MenuTeam { TeamIndex = 0; TeamIndices = Map.toKeyList field.Team; TeamEquipOpt = None }
             let field = Field.mapMenu (fun menu -> { menu with MenuState = state }) field
             just field
 
@@ -246,6 +246,134 @@ type FieldDispatcher () =
                     let state =
                         match menu.MenuState with
                         | MenuTeam menuTeam -> MenuTeam { menuTeam with TeamIndex = index }
+                        | state -> state
+                    { menu with MenuState = state })
+                    field
+            just field
+
+        | MenuTeamEquip equipType ->
+            let field =
+                Field.mapMenu (fun menu ->
+                    let state =
+                        match menu.MenuState with
+                        | MenuTeam menuTeam ->
+                            let equip = { EquipType = equipType; EquipPage = 0 }
+                            MenuTeam { menuTeam with TeamEquipOpt = Some equip }
+                        | state -> state
+                    { menu with MenuState = state })
+                    field
+            just field
+
+        | MenuTeamEquipPageUp ->
+            let field =
+                Field.mapMenu (fun menu ->
+                    let state =
+                        match menu.MenuState with
+                        | MenuTeam menuTeam ->
+                            match menuTeam.TeamEquipOpt with
+                            | Some equip ->
+                                let equip = { equip with EquipPage = max (dec equip.EquipPage) 0 }
+                                MenuTeam { menuTeam with TeamEquipOpt = Some equip }
+                            | None -> MenuTeam menuTeam
+                        | state -> state
+                    { menu with MenuState = state })
+                    field
+            just field
+
+        | MenuTeamEquipPageDown ->
+            let field =
+                Field.mapMenu (fun menu ->
+                    let state =
+                        match menu.MenuState with
+                        | MenuTeam menuTeam ->
+                            match menuTeam.TeamEquipOpt with
+                            | Some equip ->
+                                let equip = { equip with EquipPage = inc equip.EquipPage }
+                                MenuTeam { menuTeam with TeamEquipOpt = Some equip }
+                            | None -> MenuTeam menuTeam
+                        | state -> state
+                    { menu with MenuState = state })
+                    field
+            just field
+
+        | MenuTeamEquipSelect (_, (itemType, _)) ->
+            let field =
+                Field.mapMenu (fun menu ->
+                    let state =
+                        match menu.MenuState with
+                        | MenuTeam menuTeam ->
+                            match menuTeam.TeamEquipOpt with
+                            | Some equip ->
+                                let equipType =
+                                    match equip.EquipType with
+                                    | EquipWeapon _ -> EquipWeapon (Some (match itemType with Equipment (WeaponType weaponType) -> weaponType | _ -> failwithumf ()))
+                                    | EquipArmor _ -> EquipArmor (Some (match itemType with Equipment (ArmorType armorType) -> armorType | _ -> failwithumf ()))
+                                    | EquipAccessory _ -> EquipAccessory (Some (match itemType with Equipment (AccessoryType accessoryType) -> accessoryType | _ -> failwithumf ()))
+                                let equip = { equip with EquipType = equipType }
+                                MenuTeam { menuTeam with TeamEquipOpt = Some equip }
+                            | None -> MenuTeam menuTeam
+                        | state -> state
+                    { menu with MenuState = state })
+                    field
+            just field
+
+        | MenuTeamEquipConfirm ->
+            match field.Menu.MenuState with
+            | MenuTeam menuTeam ->
+                match menuTeam.TeamEquipOpt with
+                | Some equip ->
+                    match field.Team.TryGetValue menuTeam.TeamIndex with
+                    | (true, teammate) ->
+                        let inventory = field.Inventory
+                        let (teammate, inventory) =
+                            match equip.EquipType with
+                            | EquipWeapon weaponTypeOpt ->
+                                let inventory =
+                                    match weaponTypeOpt with
+                                    | Some weaponType -> Inventory.tryRemoveItem (Equipment (WeaponType weaponType)) inventory |> snd
+                                    | None -> inventory
+                                let inventory =
+                                    match teammate.WeaponOpt with
+                                    | Some weaponType -> Inventory.tryAddItem (Equipment (WeaponType weaponType)) inventory |> snd
+                                    | None -> inventory
+                                let teammate = Teammate.equipWeaponOpt weaponTypeOpt teammate
+                                (teammate, inventory)
+                            | EquipArmor armorTypeOpt ->
+                                let inventory =
+                                    match armorTypeOpt with
+                                    | Some armorType -> Inventory.tryRemoveItem (Equipment (ArmorType armorType)) inventory |> snd
+                                    | None -> inventory
+                                let inventory =
+                                    match teammate.ArmorOpt with
+                                    | Some armorType -> Inventory.tryAddItem (Equipment (ArmorType armorType)) inventory |> snd
+                                    | None -> inventory
+                                let teammate = Teammate.equipArmorOpt armorTypeOpt teammate
+                                (teammate, inventory)
+                            | EquipAccessory accessoryTypeOpt ->
+                                let inventory =
+                                    match accessoryTypeOpt with
+                                    | Some accessoryType -> Inventory.tryRemoveItem (Equipment (AccessoryType accessoryType)) inventory |> snd
+                                    | None -> inventory
+                                let inventory =
+                                    match teammate.Accessories with
+                                    | accessoryType :: _ -> Inventory.tryAddItem (Equipment (AccessoryType accessoryType)) inventory |> snd
+                                    | [] -> inventory
+                                let teammate = Teammate.equipAccessoryOpt accessoryTypeOpt teammate
+                                (teammate, inventory)
+                        let field = Field.mapTeammate (constant teammate) teammate.TeamIndex field
+                        let field = Field.mapInventory (constant inventory) field
+                        let field = Field.mapMenu (fun menu -> { menu with MenuState = MenuTeam { menuTeam with TeamEquipOpt = None }}) field
+                        just field
+                    | (false, _) -> just field
+                | None -> just field
+            | _ -> just field
+
+        | MenuTeamEquipCancel ->
+            let field =
+                Field.mapMenu (fun menu ->
+                    let state = 
+                        match menu.MenuState with
+                        | MenuTeam menuTeam -> MenuTeam { menuTeam with TeamEquipOpt = None }
                         | state -> state
                     { menu with MenuState = state })
                     field
@@ -368,7 +496,7 @@ type FieldDispatcher () =
             just field
 
         | MenuOptionsSelectBattleSpeed battleSpeed ->
-            let field = Field.mapOptions (constant { BattleSpeed = battleSpeed }) field
+            let field = Field.setOptions { BattleSpeed = battleSpeed } field
             just field
 
         | MenuOptionsQuitPrompt ->
@@ -470,8 +598,8 @@ type FieldDispatcher () =
             | Some dialog ->
                 match dialog.DialogPromptOpt with
                 | Some ((_, promptCue), _) ->
-                    let field = Field.mapDialogOpt (constant None) field
-                    let field = Field.mapCue (constant promptCue) field
+                    let field = Field.setDialogOpt None field
+                    let field = Field.setCue promptCue field
                     just field
                 | None -> just field
             | None -> just field
@@ -481,8 +609,8 @@ type FieldDispatcher () =
             | Some dialog ->
                 match dialog.DialogPromptOpt with
                 | Some (_, (_, promptCue)) ->
-                    let field = Field.mapDialogOpt (constant None) field
-                    let field = Field.mapCue (constant promptCue) field
+                    let field = Field.setDialogOpt None field
+                    let field = Field.setCue promptCue field
                     just field
                 | None -> just field
             | None -> just field
@@ -578,7 +706,7 @@ type FieldDispatcher () =
             let speed = linearVelocity.Magnitude
             let field =
                 if speed <= Constants.Field.AvatarIdleSpeedMax
-                then Field.mapAvatar (Avatar.mapDirection (constant direction)) field
+                then Field.mapAvatar (Avatar.setDirection direction) field
                 else field
             let world = screen.SetField field world
             just world
@@ -601,9 +729,9 @@ type FieldDispatcher () =
                                 else (0L, time)
                             | None -> (0L, time)
                         let fadeIn = if playTime <> 0L then Constants.Field.FieldSongFadeInTime else 0L
-                        let field = Field.mapFieldSongTimeOpt (constant (Some startTime)) field
+                        let field = Field.setFieldSongTimeOpt (Some startTime) field
                         let world = screen.SetField field world
-                        withSignal (FieldCommand.PlaySong (30L, fadeIn, playTime, Constants.Audio.SongVolumeDefault, fieldSong)) world
+                        withSignal (FieldCommand.PlaySong (30L, fadeIn, playTime, 0.5f, fieldSong)) world
                     else just world
                 | (Some fieldSong, None) ->
                     let fieldSong = overrideSong field.FieldType field.Advents fieldSong
@@ -617,9 +745,9 @@ type FieldDispatcher () =
                             else (0L, time)
                         | None -> (0L, time)
                     let fadeIn = if playTime <> 0L then Constants.Field.FieldSongFadeInTime else 0L
-                    let field = Field.mapFieldSongTimeOpt (constant (Some startTime)) field
+                    let field = Field.setFieldSongTimeOpt (Some startTime) field
                     let world = screen.SetField field world
-                    withSignal (FieldCommand.PlaySong (30L, fadeIn, playTime, Constants.Audio.SongVolumeDefault, fieldSong)) world
+                    withSignal (FieldCommand.PlaySong (30L, fadeIn, playTime, 0.5f, fieldSong)) world
                 | (None, _) -> just world
             | (false, _) -> just world
 
@@ -636,6 +764,13 @@ type FieldDispatcher () =
         | CommenceBattle (battleData, prizePool) ->
             let world = World.publish (battleData, prizePool) screen.CommenceBattleEvent screen world
             just world
+
+        | MenuOptionsToggleFullScreen ->
+            if world.Unaccompanied then
+                match World.tryGetWindowFullScreen world with
+                | Some fullScreen -> just (World.trySetWindowFullScreen (not fullScreen) world)
+                | None -> just world
+            else just world
 
         | ScheduleSound (delay, volume, sound) ->
             let world = World.schedule delay (fun world -> World.playSound volume sound world; world) screen world
@@ -669,7 +804,9 @@ type FieldDispatcher () =
                     [Entity.PropPlus := PropPlus.make field.FieldTime field.Avatar.Perimeter.Bottom field.Advents prop]
 
              // spirit orb
-             if Field.hasEncounters field && CueSystem.Cue.isFin field.Cue && field.Menu.MenuState = MenuClosed then
+             if Field.hasEncounters field &&
+                CueSystem.Cue.isFin field.Cue &&
+                field.Menu.MenuState = MenuClosed then
                 Content.entity<SpiritOrbDispatcher> "SpiritOrb"
                     [Entity.Position == v3 -448.0f 48.0f 0.0f; Entity.Elevation == Constants.Field.SpiritOrbElevation; Entity.Size == v3 192.0f 192.0f 0.0f
                      Entity.SpiritOrb :=
@@ -837,7 +974,8 @@ type FieldDispatcher () =
                 // team
                 Content.panel "Team"
                     [Entity.Position == v3 -450.0f -255.0f 0.0f; Entity.Elevation == Constants.Field.GuiElevation; Entity.Size == v3 900.0f 510.0f 0.0f
-                     Entity.BackdropImageOpt == Some Assets.Gui.DialogXXLImage]
+                     Entity.BackdropImageOpt == Some Assets.Gui.DialogXXLImage
+                     Entity.Enabled := menuTeam.TeamEquipOpt.IsNone]
                     [Content.sidebar "Sidebar" (v3 24.0f 417.0f 0.0f) field (fun () -> MenuTeamOpen) (fun () -> MenuInventoryOpen) (fun () -> MenuTechsOpen) (fun () -> MenuKeyItemsOpen) (fun () -> MenuOptionsOpen) (fun () -> MenuClose)
                      yield! Content.team (v3 138.0f 417.0f 0.0f) Int32.MaxValue field (fun teammate menu ->
                         match menu.MenuState with
@@ -855,7 +993,7 @@ type FieldDispatcher () =
                         Entity.ClickSoundOpt == Some Assets.Field.AutoMapSound
                         Entity.ClickEvent => MenuAutoMapOpen]
                      Content.label "Portrait"
-                        [Entity.PositionLocal == v3 438.0f 288.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 192.0f 192.0f 0.0f
+                        [Entity.PositionLocal == v3 438.0f 345.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 144.0f 144.0f 0.0f
                          Entity.BackdropImageOpt :=
                             match MenuTeam.tryGetCharacterData field.Team menuTeam with
                             | Some characterData ->
@@ -864,56 +1002,163 @@ type FieldDispatcher () =
                                 | None -> Some Assets.Default.EmptyImage
                             | None -> Some Assets.Default.EmptyImage]
                      Content.text "CharacterType"
-                        [Entity.PositionLocal == v3 650.0f 372.0f 0.0f; Entity.ElevationLocal == 1.0f
+                        [Entity.PositionLocal == v3 606.0f 414.0f 0.0f; Entity.ElevationLocal == 1.0f
                          Entity.Justification == Unjustified false
                          Entity.Text :=
                             match MenuTeam.tryGetCharacterData field.Team menuTeam with
                             | Some characterData -> CharacterType.getName characterData.CharacterType
                             | None -> ""]
                      Content.text "ArchetypeType"
-                        [Entity.PositionLocal == v3 650.0f 336.0f 0.0f; Entity.ElevationLocal == 1.0f
+                        [Entity.PositionLocal == v3 606.0f 378.0f 0.0f; Entity.ElevationLocal == 1.0f
                          Entity.Justification == Unjustified false
                          Entity.Text :=
                             match MenuTeam.tryGetTeammate field.Team menuTeam with
                             | Some teammate -> getCaseName teammate.ArchetypeType + " Lv." + string (Algorithms.expPointsToLevel teammate.ExpPoints)
                             | None -> ""]
-                     Content.text "Weapon"
-                        [Entity.PositionLocal == v3 444.0f 237.0f 0.0f; Entity.ElevationLocal == 1.0f
+                     Content.text "WeaponLabel"
+                        [Entity.PositionLocal == v3 438.0f 291.0f 0.0f; Entity.ElevationLocal == 1.0f
                          Entity.Justification == Unjustified false
+                         Entity.Text == "Wpn."]
+                     Content.button "Weapon"
+                        [Entity.PositionLocal == v3 513.0f 285.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 336.0f 54.0f 0.0f
+                         Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
+                         Entity.UpImage == Assets.Gui.ButtonSquishedUpImage
+                         Entity.DownImage == Assets.Gui.ButtonSquishedDownImage
+                         Entity.TextMargin == v2 15.0f 0.0f
                          Entity.Text :=
                             match MenuTeam.tryGetTeammate field.Team menuTeam with
-                            | Some teammate -> "Wpn: " + Option.mapOrDefaultValue string "None" teammate.WeaponOpt
-                            | None -> ""]
-                     Content.text "Armor"
-                        [Entity.PositionLocal == v3 444.0f 207.0f 0.0f; Entity.ElevationLocal == 1.0f
+                            | Some teammate -> Option.mapOrDefaultValue string "None" teammate.WeaponOpt
+                            | None -> ""
+                         Entity.ClickEvent =>
+                            match MenuTeam.tryGetTeammate field.Team menuTeam with
+                            | Some teammate -> MenuTeamEquip (EquipWeapon teammate.WeaponOpt) :> Signal
+                            | None -> Nop]
+                     Content.text "ArmorLabel"
+                        [Entity.PositionLocal == v3 438.0f 234.0f 0.0f; Entity.ElevationLocal == 1.0f
                          Entity.Justification == Unjustified false
+                         Entity.Text == "Amr."]
+                     Content.button "Armor"
+                        [Entity.PositionLocal == v3 513.0f 228.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 336.0f 54.0f 0.0f
+                         Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
+                         Entity.UpImage == Assets.Gui.ButtonSquishedUpImage
+                         Entity.DownImage == Assets.Gui.ButtonSquishedDownImage
+                         Entity.TextMargin == v2 15.0f 0.0f
                          Entity.Text :=
                             match MenuTeam.tryGetTeammate field.Team menuTeam with
-                            | Some teammate -> "Amr: " + Option.mapOrDefaultValue string "None" teammate.ArmorOpt
-                            | None -> ""]
-                     Content.text "Accessory"
-                        [Entity.PositionLocal == v3 444.0f 177.0f 0.0f; Entity.ElevationLocal == 1.0f
+                            | Some teammate -> Option.mapOrDefaultValue string "None" teammate.ArmorOpt
+                            | None -> ""
+                         Entity.ClickEvent =>
+                            match MenuTeam.tryGetTeammate field.Team menuTeam with
+                            | Some teammate -> MenuTeamEquip (EquipArmor teammate.ArmorOpt) :> Signal
+                            | None -> Nop]
+                     Content.text "AccessoryLabel"
+                        [Entity.PositionLocal == v3 438.0f 177.0f 0.0f; Entity.ElevationLocal == 1.0f
                          Entity.Justification == Unjustified false
+                         Entity.Text == "Acc."]
+                     Content.button "Accessory"
+                        [Entity.PositionLocal == v3 513.0f 171.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 336.0f 54.0f 0.0f
+                         Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
+                         Entity.UpImage == Assets.Gui.ButtonSquishedUpImage
+                         Entity.DownImage == Assets.Gui.ButtonSquishedDownImage
+                         Entity.TextMargin == v2 15.0f 0.0f
                          Entity.Text :=
                             match MenuTeam.tryGetTeammate field.Team menuTeam with
-                            | Some teammate -> "Acc: " + Option.mapOrDefaultValue string "None" (List.tryHead teammate.Accessories)
-                            | None -> ""]
+                            | Some teammate -> Option.mapOrDefaultValue string "None" (List.tryHead teammate.Accessories)
+                            | None -> ""
+                         Entity.ClickEvent =>
+                            match MenuTeam.tryGetTeammate field.Team menuTeam with
+                            | Some teammate -> MenuTeamEquip (EquipAccessory (List.tryHead teammate.Accessories)) :> Signal
+                            | None -> Nop]
                      Content.text "Stats"
-                        [Entity.PositionLocal == v3 444.0f -78.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 512.0f 256.0f 0.0f
+                        [Entity.PositionLocal == v3 438.0f 32.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 432.0f 132.0f 0.0f
                          Entity.Justification == Unjustified true
                          Entity.Text :=
                             match MenuTeam.tryGetTeammate field.Team menuTeam with
                             | Some teammate ->
-                                "HP  "   + (string teammate.HitPoints).PadLeft 3 +  " /" + (string teammate.HitPointsMax).PadLeft 3 +
-                                "\nTP  " + (string teammate.TechPoints).PadLeft 3 + " /" + (string teammate.TechPointsMax).PadLeft 3 +
-                                "\nPow " + (string teammate.Power).PadLeft 3 +      "   Mag " + (string $ teammate.Magic false).PadLeft 3 +
-                                "\nDef " + (string teammate.Defense).PadLeft 3 +    "   Abs " + (string teammate.Absorb).PadLeft 3 +
-                                "\nExp " + (string teammate.ExpPoints).PadLeft 3 +  " / " + match Algorithms.expPointsForNextLevel teammate.ExpPoints with Int32.MaxValue -> "MAX" | next -> string next
+                                "HP   "   + (string teammate.HitPoints).PadRight 4 +  "/ " + (string teammate.HitPointsMax) +
+                                "\nTP   " + (string teammate.TechPoints).PadRight 4 + "/ " + (string teammate.TechPointsMax) +
+                                "\nPow. " + (string teammate.Power).PadRight 4 +      "Mag. " + (string $ teammate.Magic false) +
+                                "\nDef. " + (string teammate.Defense).PadRight 4 +    "Abs. " + (string teammate.Absorb) +
+                                "\nExp. " + (string teammate.ExpPoints).PadRight 3 +  " / " + (match Algorithms.expPointsForNextLevel teammate.ExpPoints with Int32.MaxValue -> "MAX" | next -> string next)
                             | None -> ""]
                      Content.text "Gold"
-                        [Entity.PositionLocal == v3 444.0f 9.0f 0.0f; Entity.ElevationLocal == 1.0f
+                        [Entity.PositionLocal == v3 438.0f 0.0f 0.0f; Entity.ElevationLocal == 1.0f
                          Entity.Justification == Unjustified false
                          Entity.Text := string field.Inventory.Gold + "G"]]
+
+                // equip
+                match menuTeam.TeamEquipOpt with
+                | Some equip when field.Team.ContainsKey menuTeam.TeamIndex ->
+                    let teammate = field.Team.[menuTeam.TeamIndex]
+                    let (changing, currentEquipmentName, teammate', equipTypeStr) =
+                        match equip.EquipType with
+                        | EquipWeapon weaponTypeOpt -> (teammate.WeaponOpt <> weaponTypeOpt, teammate.WeaponOpt |> Option.map scstringMemo |> Option.defaultValue "None", Teammate.equipWeaponOpt weaponTypeOpt teammate, "Wpn:")
+                        | EquipArmor armorTypeOpt -> (teammate.ArmorOpt <> armorTypeOpt, teammate.ArmorOpt |> Option.map scstringMemo |> Option.defaultValue "None", Teammate.equipArmorOpt armorTypeOpt teammate, "Arm:")
+                        | EquipAccessory accessoryTypeOpt -> (teammate.Accessories <> Option.toList accessoryTypeOpt, teammate.Accessories |> List.map scstringMemo |> flip Seq.headOrDefault "None", Teammate.equipAccessoryOpt accessoryTypeOpt teammate, "Acc:")
+                    Content.panel "Equip"
+                        [Entity.Position == v3 -450.0f -177.0f 0.0f; Entity.Elevation == Constants.Field.GuiElevation + 10.0f; Entity.Size == v3 900.0f 351.0f 0.0f
+                         Entity.BackdropImageOpt == Some Assets.Gui.DialogLargeImage]
+                        [Content.text "Current"
+                            [Entity.PositionLocal == v3 42.0f 285.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 384.0f 32.0f 0.0f
+                             Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
+                             Entity.Text := equipTypeStr + " " + currentEquipmentName]
+                         Content.label "Portrait"
+                            [Entity.PositionLocal == v3 42.0f 132.0f 0.0f; Entity.ElevationLocal == 0.5f; Entity.Size == v3 144.0f 144.0f 0.0f
+                             Entity.BackdropImageOpt :=
+                                match MenuTeam.tryGetCharacterData field.Team menuTeam with
+                                | Some characterData ->
+                                    match characterData.PortraitOpt with
+                                    | Some portrait -> Some portrait
+                                    | None -> Some Assets.Default.EmptyImage
+                                | None -> Some Assets.Default.EmptyImage]
+                         Content.text "Stats"
+                            [Entity.PositionLocal == v3 198.0f 132.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 288.0f 144.0f 0.0f
+                             Entity.Justification == Unjustified true
+                             Entity.Text :=
+                                match MenuTeam.tryGetTeammate field.Team menuTeam with
+                                | Some teammate ->
+                                    "HP   "   + (string teammate.HitPointsMax).PadRight 4 +     (if teammate.HitPointsMax <> teammate'.HitPointsMax then "> " + (string teammate'.HitPointsMax) else "") +
+                                    "\nTP   " + (string teammate.TechPointsMax).PadRight 4 +    (if teammate.TechPointsMax <> teammate'.TechPointsMax then "> " + (string teammate'.TechPointsMax) else "") +
+                                    "\nPow. " + (string teammate.Power).PadRight 4 +            (if teammate.Power <> teammate'.Power then "> " + (string teammate'.Power) else "") +
+                                    "\nMag. " + (string $ teammate.Magic false).PadRight 4 +    (if teammate.Magic false <> teammate'.Magic false then "> " + (string $ teammate'.Magic false) else "") +
+                                    "\nDef. " + (string teammate.Defense).PadRight 4 +          (if teammate.Defense <> teammate'.Defense then "> " + (string teammate'.Defense) else "") +
+                                    "\nAbs. " + (string teammate.Absorb).PadRight 4 +           (if teammate.Absorb <> teammate'.Absorb then "> " + (string teammate'.Absorb) else "")
+                                | None -> ""]
+                         if changing then
+                            Content.text "EquipLabel"
+                                [Entity.PositionLocal == v3 42.0f 93.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 384.0f 32.0f 0.0f
+                                 Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
+                                 Entity.Text := "Equip?"]
+                            Content.button "EquipButton"
+                                [Entity.PositionLocal == v3 72.0f 15.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 336.0f 72.0f 0.0f
+                                 Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
+                                 Entity.TextMargin == v2 15.0f 0.0f
+                                 Entity.UpImage == Assets.Gui.ButtonLongUpImage
+                                 Entity.DownImage == Assets.Gui.ButtonLongDownImage
+                                 Entity.ClickSoundOpt == Some Assets.Field.EquipSound
+                                 Entity.Text := equip.EquipType.ItemName
+                                 Entity.ClickEvent => MenuTeamEquipConfirm]
+                         Content.button "EquipCancel"
+                            [Entity.PositionLocal == v3 810.0f 258.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 72.0f 72.0f 0.0f
+                             Entity.UpImage == asset "Field" "CloseButtonUp"
+                             Entity.DownImage == asset "Field" "CloseButtonDown"
+                             Entity.ClickEvent => MenuTeamEquipCancel]
+                         yield! Content.items (v3 462.0f 258.0f 0.0f) 3 3 field MenuTeamEquipSelect
+                         Content.button "PageUp"
+                            [Entity.PositionLocal == v3 462.0f 15.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 72.0f 72.0f 0.0f
+                             Entity.Text == "<"
+                             Entity.VisibleLocal := Content.pageItems 4 field |> a__
+                             Entity.UpImage == Assets.Gui.ButtonSmallUpImage
+                             Entity.DownImage == Assets.Gui.ButtonSmallDownImage
+                             Entity.ClickEvent => MenuTeamEquipPageUp]
+                         Content.button "PageDown"
+                            [Entity.PositionLocal == v3 726.0f 15.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 72.0f 72.0f 0.0f
+                             Entity.Text == ">"
+                             Entity.VisibleLocal := Content.pageItems 4 field |> _b_
+                             Entity.UpImage == Assets.Gui.ButtonSmallUpImage
+                             Entity.DownImage == Assets.Gui.ButtonSmallDownImage
+                             Entity.ClickEvent => MenuTeamEquipPageDown]]
+                | Some _ | None -> ()
 
              // auto map
              | MenuAutoMap ->
@@ -1075,41 +1320,47 @@ type FieldDispatcher () =
                              Entity.Text == "Swift"
                              Entity.Dialed := match field.Options.BattleSpeed with SwiftSpeed -> true | _ -> false
                              Entity.DialedEvent => MenuOptionsSelectBattleSpeed SwiftSpeed]
-                        Content.text "Quit Game"
+                        Content.text "Full Screen"
                             [Entity.PositionLocal == v3 414.0f 312.0f 0.0f; Entity.ElevationLocal == 1.0f
+                             Entity.Justification == Justified (JustifyCenter, JustifyMiddle)
+                             Entity.Text == "Full Screen"]
+                        Content.button "Toggle Full Screen"
+                            [Entity.PositionLocal == v3 408.0f 252.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 144.0f 48.0f 0.0f
+                             Entity.UpImage == Assets.Gui.ButtonShortUpImage
+                             Entity.DownImage == Assets.Gui.ButtonShortDownImage
+                             Entity.Text == "Toggle"
+                             Entity.ClickEvent => MenuOptionsToggleFullScreen]
+                        Content.text "Quit Game"
+                            [Entity.PositionLocal == v3 414.0f 192.0f 0.0f; Entity.ElevationLocal == 1.0f
                              Entity.Justification == Justified (JustifyCenter, JustifyMiddle)
                              Entity.Text == "Quit Game"]
                         Content.button "Quit"
-                            [Entity.PositionLocal == v3 408.0f 252.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 144.0f 48.0f 0.0f
+                            [Entity.PositionLocal == v3 408.0f 132.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 144.0f 48.0f 0.0f
                              Entity.UpImage == Assets.Gui.ButtonShortUpImage
                              Entity.DownImage == Assets.Gui.ButtonShortDownImage
                              Entity.Text == "Quit"
                              Entity.ClickEvent => MenuOptionsQuitPrompt]
-                        Content.text "TitleAndVersion"
-                            [Entity.PositionLocal == v3 240.0f 120.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 480.0f 48.0f 0.0f
+                        Content.text "About"
+                            [Entity.PositionLocal == v3 320.0f 24.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 320.0f 48.0f 0.0f
                              Entity.Justification == Justified (JustifyCenter, JustifyMiddle)
                              Entity.Text == "OmniBlade Demo v0.9.0"]
-                        Content.text "TitleAndVersionInfo"
-                            [Entity.PositionLocal == v3 180.0f 0.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 640.0f 108.0f 0.0f
-                             Entity.Justification == Unjustified true
-                             Entity.Text == "This build of OmniBlade contains only the first few hours of content."]
                      else
-                        Content.text "Confirm Quit:"
+                        Content.text "Confirm Quit"
                             [Entity.PositionLocal == v3 414.0f 312.0f 0.0f; Entity.ElevationLocal == 1.0f
                              Entity.Justification == Justified (JustifyCenter, JustifyMiddle)
-                             Entity.Text == "Confirm Quit:"]
-                        Content.button "Cancel"
+                             Entity.Text == "Confirm Quit?"]
+                        Content.button "Quit!"
                             [Entity.PositionLocal == v3 252.0f 252.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 144.0f 48.0f 0.0f
                              Entity.UpImage == Assets.Gui.ButtonShortUpImage
                              Entity.DownImage == Assets.Gui.ButtonShortDownImage
-                             Entity.Text == "Cancel"
-                             Entity.ClickEvent => MenuOptionsQuitCancel]
-                        Content.button "Quit!"
+                             Entity.Text == "Quit!"
+                             Entity.ClickEvent => MenuOptionsQuitConfirm]
+                        Content.button "Cancel"
                             [Entity.PositionLocal == v3 564.0f 252.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 144.0f 48.0f 0.0f
                              Entity.UpImage == Assets.Gui.ButtonShortUpImage
                              Entity.DownImage == Assets.Gui.ButtonShortDownImage
-                             Entity.Text == "Quit!"
-                             Entity.ClickEvent => MenuOptionsQuitConfirm]]
+                             Entity.Text == "Cancel"
+                             Entity.ClickEvent => MenuOptionsQuitCancel]]
 
              // closed
              | MenuClosed -> ()
@@ -1171,31 +1422,54 @@ type FieldDispatcher () =
              // use
              match field.Menu.MenuUseOpt with
              | Some menuUse ->
-                Content.panel "Use"
-                    [Entity.Position == v3 -450.0f -216.0f 0.0f; Entity.Elevation == Constants.Field.GuiElevation + 10.0f; Entity.Size == v3 900.0f 432.0f 0.0f
-                     Entity.BackdropImageOpt == Some Assets.Gui.DialogXLImage]
-                    [yield! Content.team (v3 160.0f 183.0f 0.0f) 3 field (fun teammate menu ->
-                        match menu.MenuUseOpt with
-                        | Some menuUse -> Teammate.canUseItem (snd menuUse.MenuUseSelection) teammate
-                        | None -> false)
-                        MenuInventoryUse
-                     Content.button "Close"
-                        [Entity.PositionLocal == v3 810.0f 342.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 72.0f 72.0f 0.0f
-                         Entity.UpImage == asset "Field" "CloseButtonUp"
-                         Entity.DownImage == asset "Field" "CloseButtonDown"
-                         Entity.ClickEvent => MenuInventoryCancel]
-                     Content.text "Line1"
-                        [Entity.PositionLocal == v3 36.0f 354.0f 0.0f; Entity.ElevationLocal == 1.0f
-                         Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
-                         Entity.Text := menuUse.MenuUseLine1]
-                     Content.text "Line2"
-                        [Entity.PositionLocal == v3 66.0f 312.0f 0.0f; Entity.ElevationLocal == 1.0f
-                         Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
-                         Entity.Text := menuUse.MenuUseLine2]
-                     Content.text "Line3"
-                        [Entity.PositionLocal == v3 66.0f 270.0f 0.0f; Entity.ElevationLocal == 1.0f
-                         Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
-                         Entity.Text := menuUse.MenuUseLine3]]
+                match menuUse.MenuUseSelection with
+                | (_, Consumable _) ->
+                    Content.panel "Use"
+                        [Entity.Position == v3 -450.0f -216.0f 0.0f; Entity.Elevation == Constants.Field.GuiElevation + 10.0f; Entity.Size == v3 900.0f 432.0f 0.0f
+                         Entity.BackdropImageOpt == Some Assets.Gui.DialogXLImage]
+                        [Content.button "Close"
+                            [Entity.PositionLocal == v3 810.0f 342.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 72.0f 72.0f 0.0f
+                             Entity.UpImage == asset "Field" "CloseButtonUp"
+                             Entity.DownImage == asset "Field" "CloseButtonDown"
+                             Entity.ClickEvent => MenuInventoryCancel]
+                         Content.text "Line1"
+                            [Entity.PositionLocal == v3 36.0f 354.0f 0.0f; Entity.ElevationLocal == 1.0f
+                             Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
+                             Entity.Text := menuUse.MenuUseLine1]
+                         Content.text "Line2"
+                            [Entity.PositionLocal == v3 66.0f 312.0f 0.0f; Entity.ElevationLocal == 1.0f
+                             Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
+                             Entity.Text := menuUse.MenuUseLine2]
+                         Content.text "Line3"
+                            [Entity.PositionLocal == v3 66.0f 270.0f 0.0f; Entity.ElevationLocal == 1.0f
+                             Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
+                             Entity.Text := menuUse.MenuUseLine3]
+                         yield! Content.team (v3 160.0f 183.0f 0.0f) 3 field (fun teammate menu ->
+                            match menu.MenuUseOpt with
+                            | Some menuUse -> Teammate.canUseItem (snd menuUse.MenuUseSelection) teammate
+                            | None -> false)
+                            MenuInventoryUse]
+                | (_, _) ->
+                    Content.panel "Use"
+                       [Entity.Position == v3 -450.0f -128.0f 0.0f; Entity.Elevation == Constants.Field.GuiElevation + 10.0f; Entity.Size == v3 900.0f 252.0f 0.0f
+                        Entity.BackdropImageOpt == Some Assets.Gui.DialogFatImage]
+                       [Content.button "Close"
+                            [Entity.PositionLocal == v3 810.0f 162.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 72.0f 72.0f 0.0f
+                             Entity.UpImage == asset "Field" "CloseButtonUp"
+                             Entity.DownImage == asset "Field" "CloseButtonDown"
+                             Entity.ClickEvent => MenuInventoryCancel]
+                        Content.text "Line1"
+                            [Entity.PositionLocal == v3 36.0f 174.0f 0.0f; Entity.ElevationLocal == 1.0f
+                             Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
+                             Entity.Text := menuUse.MenuUseLine1]
+                        Content.text "Line2"
+                            [Entity.PositionLocal == v3 66.0f 132.0f 0.0f; Entity.ElevationLocal == 1.0f
+                             Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
+                             Entity.Text := menuUse.MenuUseLine2]
+                        Content.text "Line3"
+                            [Entity.PositionLocal == v3 66.0f 90.0f 0.0f; Entity.ElevationLocal == 1.0f
+                             Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
+                             Entity.Text := menuUse.MenuUseLine3]]
              | None -> ()
 
              // tech

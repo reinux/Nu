@@ -352,31 +352,31 @@ module EffectDescriptors =
                      Emit (Shift 0.0f, Rate 1.0f, [|orbitV; positionAdjustY|], [||], StaticSprite (Resource (AssetTag.toPair Assets.Battle.NonLocationGreenImage), [|nonLocationSize; fade|], Nil))|]) }
 
     let fire position position2 =
-        let fireSize = Size (v3 64.0f 64.0f 0.0f)
+        let fireSize = Size (v3 96.0f 96.0f 0.0f)
         let activation timeOn timeOff = Enableds (Equal, Once, [|{ LogicValue = true; LogicLength = timeOn}; { LogicValue = false; LogicLength = timeOff }|])
         let linearTravel position position2 duration = Positions (Set, EaseOut, Once, [|{ TweenValue = position; TweenLength = duration }; { TweenValue = position2; TweenLength = 0L }|])
         let fire playback aspects =
             AnimatedSprite
              (Resource (AssetTag.toPair Assets.Battle.FireAnimationSheet),
-              v2i 16 16, 4, 4, 3L, playback, aspects, Nil)
+              v2i 32 32, 8, 4, 2L, playback, aspects, Nil)
         let burn =
             AnimatedSprite
              (Resource (AssetTag.toPair Assets.Battle.BurnAnimationSheet),
-              v2i 16 16, 4, 4, 3L, Once, [||], Nil)
+              v2i 32 32, 12, 4, 3L, Once, [||], Nil)
         let fireball travel activation =
             Contents
                 (Shift 0.0f,
                  [|fire Loop [|travel; fireSize; activation|];
                    Emit (Shift 0.0f, Rate 0.3f, [|travel; activation|], [||], fire Once [|fireSize|]) |])
         { EffectName = "Fire"
-          LifeTimeOpt = Some 129L
+          LifeTimeOpt = Some 140L
           Definitions = Map.empty
           Content = 
             Contents
                 (Shift 0.0f,
                  [|fireball (Circle (64.0f, 1.5f, 40L)) (activation 40L 60L)
                    Delay (40L, fireball (Aspects [|linearTravel position position2 20L|]) (activation 20L 40L))
-                   Delay (60L, Emit (Shift 0.0f, Rate 0.1f, [||], [|linearTravel position2 (position2 + (v3 0.0f 72.0f 0.0f)) 20L|], burn))|]) }
+                   Delay (60L, Emit (Shift 0.0f, Rate 0.1f, [||], [|linearTravel position2 (position2 + (v3 0.0f 72.0f 0.0f)) 72L|], burn))|]) }
 
     let flame position position2 =
         { EffectName = "Flame"
@@ -394,48 +394,31 @@ module EffectDescriptors =
                  AnimatedSprite (Resource (AssetTag.toPair Assets.Battle.FlameAnimationSheet), v2i 64 64, 6, 6, 6L, Once, [||], Nil)) }
 
     let ice =
-        let coverRadius = 50.0f
-        let bombardActivation = Enableds (Equal, Once, [|{ LogicValue = true; LogicLength = 10L };{ LogicValue = false; LogicLength = 0L }|])
-        let bombardTravel origin = Positions (Sum, Linear, Once, [|{ TweenValue = origin; TweenLength = 10L };{ TweenValue = v3Zero; TweenLength = 0L }|])
-        let coverTravel =
-            Aspects
-                [|Positions
-                   (Sum, Linear, Loop,
-                    [|{ TweenValue = v3 0.0f -coverRadius 0.0f; TweenLength = 10L }
-                      { TweenValue = v3 coverRadius 0.0f 0.0f; TweenLength = 0L }|])
-                  Positions
-                   (Sum, Random, Loop,
-                    [|{ TweenValue = v3Zero; TweenLength = 80L }
-                      { TweenValue = v3 -coverRadius coverRadius 0.0f; TweenLength = 0L }|])|]
-        let ice = StaticSprite (Resource (AssetTag.toPair Assets.Battle.IceImage), [|Size (v3 192.0f 192.0f 0.0f)|], Nil)
-        let iceBombard origin = Emit (Shift 0.0f, Rate 0.2f, [||], [|bombardTravel origin; bombardActivation|], ice)
-        let iceCover = Emit (Shift 0.0f, Rate 1.0f, [|coverTravel|], [||], ice)
         { EffectName = "Ice"
-          LifeTimeOpt = Some 80L
+          LifeTimeOpt = Some 100L
           Definitions = Map.empty
           Content =
-            Contents
-                (Shift 0.0f,
-                 [|iceCover
-                   iceBombard (v3 -700.0f 0.0f 0.0f)
-                   iceBombard (v3 500.0f 500.0f 0.0f)
-                   iceBombard (v3 500.0f -500.0f 0.0f)|]) }
+            AnimatedSprite
+                (Resource (AssetTag.toPair Assets.Battle.IceAnimationSheet),
+                 v2i 48 48, 20, 20, 5L, Once,
+                 [|Size (v3 144.0f 144.0f 0.0f)|],
+                 Nil) }
 
     let snowball =
-        let fall = Positions (Sum, Linear, Once, [|{ TweenValue = v3 0.0f 800.0f 0.0f; TweenLength = 80L }; { TweenValue = v3 0.0f -800.0f 0.0f; TweenLength = 0L }|])
+        let fall = Positions (Sum, Linear, Once, [|{ TweenValue = v3 0.0f 600.0f 0.0f; TweenLength = 90L }; { TweenValue = v3 0.0f -600.0f 0.0f; TweenLength = 0L }|])
         let rotate =
             Degreeses (Set, Constant, Loop,
-                [|{ TweenValue = v3Zero; TweenLength = 5L }
-                  { TweenValue = v3 0.0f 0.0f 90.0f; TweenLength = 5L }
-                  { TweenValue = v3 0.0f 0.0f 180.0f; TweenLength = 5L }
-                  { TweenValue = v3 0.0f 0.0f 270.0f; TweenLength = 5L }|])
+                [|{ TweenValue = v3Zero; TweenLength = 6L }
+                  { TweenValue = v3 0.0f 0.0f 90.0f; TweenLength = 6L }
+                  { TweenValue = v3 0.0f 0.0f 180.0f; TweenLength = 6L }
+                  { TweenValue = v3 0.0f 0.0f 270.0f; TweenLength = 6L }|])
         { EffectName = "Snowball"
-          LifeTimeOpt = Some 80L
+          LifeTimeOpt = Some 90L
           Definitions = Map.empty
           Content =
               StaticSprite
                (Resource (AssetTag.toPair Assets.Battle.SnowballImage),
-                [|Size (v3 432.0f 432.0f 0.0f); fall; rotate|], Nil) }
+                [|Size (v3 288.0f 288.0f 0.0f); fall; rotate|], Nil) }
 
     let cure =
         let path =

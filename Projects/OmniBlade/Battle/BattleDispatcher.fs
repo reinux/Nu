@@ -56,7 +56,7 @@ type BattleDispatcher () =
                 match battle.CurrentCommandOpt with
                 | Some command ->
                     let character = command.ActionCommand.SourceIndex
-                    let battle = Battle.mapCharacterPerimeter (fun perimeter -> perimeter.WithBottom rideToken.Position) character battle
+                    let battle = Battle.setCharacterBottom rideToken.Position character battle
                     just battle
                 | None -> just battle
             | None -> just battle
@@ -69,10 +69,10 @@ type BattleDispatcher () =
             | Some dialog ->
                 match Dialog.tryAdvance id dialog with
                 | (true, dialog) ->
-                    let battle = Battle.mapDialogOpt (constant (Some dialog)) battle
+                    let battle = Battle.setDialogOpt (Some dialog) battle
                     just battle
                 | (false, _) ->
-                    let battle = Battle.mapDialogOpt (constant None) battle
+                    let battle = Battle.setDialogOpt None battle
                     just battle
             | None -> just battle
 
@@ -81,26 +81,26 @@ type BattleDispatcher () =
                 match item with
                 | "Attack" ->
                     battle |>
-                    Battle.mapCharacterInputState (constant (AimReticles (item, EnemyAim true))) characterIndex |>
+                    Battle.setCharacterInputState (AimReticles (item, EnemyAim true)) characterIndex |>
                     Battle.undefendCharacter characterIndex
                 | "Defend" ->
-                    let battle = Battle.mapCharacterInputState (constant NoInput) characterIndex battle
+                    let battle = Battle.setCharacterInputState NoInput characterIndex battle
                     let command = ActionCommand.make Defend characterIndex None None
                     let battle = Battle.appendActionCommand command battle
                     battle
                 | "Tech" ->
                     battle |>
-                    Battle.mapCharacterInputState (constant TechMenu) characterIndex |>
+                    Battle.setCharacterInputState TechMenu characterIndex |>
                     Battle.undefendCharacter characterIndex
                 | "Consumable" ->
                     battle |>
-                    Battle.mapCharacterInputState (constant ItemMenu) characterIndex |>
+                    Battle.setCharacterInputState ItemMenu characterIndex |>
                     Battle.undefendCharacter characterIndex
                 | _ -> failwithumf ()
             just battle
 
         | RegularItemCancel characterIndex ->
-            let battle = Battle.mapCharacterInputState (constant RegularMenu) characterIndex battle
+            let battle = Battle.setCharacterInputState RegularMenu characterIndex battle
             just battle
 
         | ConsumableItemSelect (characterIndex, item) ->
@@ -110,11 +110,11 @@ type BattleDispatcher () =
                 match Data.Value.Consumables.TryGetValue consumableType with
                 | (true, consumableData) -> consumableData.AimType
                 | (false, _) -> NoAim
-            let battle = Battle.mapCharacterInputState (constant (AimReticles (item, aimType))) characterIndex battle
+            let battle = Battle.setCharacterInputState (AimReticles (item, aimType)) characterIndex battle
             just battle
 
         | ConsumableItemCancel characterIndex ->
-            let battle = Battle.mapCharacterInputState (constant RegularMenu) characterIndex battle
+            let battle = Battle.setCharacterInputState RegularMenu characterIndex battle
             just battle
 
         | TechItemSelect (characterIndex, item) ->
@@ -124,11 +124,11 @@ type BattleDispatcher () =
                 match Data.Value.Techs.TryGetValue techType with
                 | (true, techData) -> techData.AimType
                 | (false, _) -> NoAim
-            let battle = Battle.mapCharacterInputState (constant (AimReticles (item, aimType))) characterIndex battle
+            let battle = Battle.setCharacterInputState (AimReticles (item, aimType)) characterIndex battle
             just battle
 
         | TechItemCancel characterIndex ->
-            let battle = Battle.mapCharacterInputState (constant RegularMenu) characterIndex battle
+            let battle = Battle.setCharacterInputState RegularMenu characterIndex battle
             just battle
 
         | ReticlesSelect (sourceIndex, targetIndex) ->
@@ -331,12 +331,12 @@ type BattleDispatcher () =
 
         | DisplayIce (delay, targetIndex) ->
             match Battle.tryGetCharacter targetIndex battle with
-            | Some target -> displayEffect delay (v3 48.0f 48.0f 0.0f) (Bottom target.Perimeter.Bottom) Over EffectDescriptors.ice screen world |> just
+            | Some target -> displayEffect delay (v3 72.0f 48.0f 0.0f) (Bottom target.Perimeter.Bottom) Over EffectDescriptors.ice screen world |> just
             | None -> just world
 
         | DisplaySnowball (delay, targetIndex) ->
             match Battle.tryGetCharacter targetIndex battle with
-            | Some target -> displayEffect delay (v3 432.0f 432.0f 0.0f) (Bottom target.Perimeter.Bottom) Over EffectDescriptors.snowball screen world |> just
+            | Some target -> displayEffect delay (v3 288.0f 288.0f 0.0f) (Bottom target.Perimeter.Bottom) Over EffectDescriptors.snowball screen world |> just
             | None -> just world
 
         | DisplayBolt (delay, targetIndex) ->
@@ -459,8 +459,8 @@ type BattleDispatcher () =
                                  Entity.BorderImage == Assets.Gui.TechBorderImage
                                  Entity.BorderColor == color8 (byte 60) (byte 60) (byte 60) (byte 191)]]]
 
-         // inputs condition
-         if battle.Running then
+         // inputs when running
+         if battle.BattleState = BattleRunning then
 
             // inputs group
             Content.group Simulants.BattleInputs.Name []
