@@ -67,9 +67,9 @@ module Assets =
         let AffirmSound = asset<Sound> PackageName "Affirm"
         let MistakeSound = asset<Sound> PackageName "Mistake"
         let SlotSound = asset<Sound> PackageName "Slot"
-        let TitleSong = { FadeOutTime = Constants.Audio.FadeOutTimeDefault; FadeInTime = 0L; StartTime = 0L; Volume = Constants.Audio.SongVolumeDefault; Song = asset<Song> PackageName "Title" }
-        let CreditsSong = { FadeOutTime = Constants.Audio.FadeOutTimeDefault; FadeInTime = 0L; StartTime = 0L; Volume = Constants.Audio.SongVolumeDefault; Song = asset<Song> PackageName "Credits" }
-        let IntroSong = { FadeOutTime = 90L; FadeInTime = 0L; StartTime = 0L; Volume = Constants.Audio.SongVolumeDefault; Song = asset<Song> PackageName "Intro" }
+        let TitleSong = { FadeInTime = 0L; FadeOutTime = Constants.Audio.FadeOutTimeDefault; StartTime = 0L; Volume = Constants.Audio.SongVolumeDefault; Song = asset<Song> PackageName "Title" }
+        let CreditsSong = { FadeInTime = 0L; FadeOutTime = Constants.Audio.FadeOutTimeDefault; StartTime = 0L; Volume = Constants.Audio.SongVolumeDefault; Song = asset<Song> PackageName "Credits" }
+        let IntroSong = { FadeInTime = 0L; FadeOutTime = 90L; StartTime = 0L; Volume = Constants.Audio.SongVolumeDefault; Song = asset<Song> PackageName "Intro" }
         let TitleGroupFilePath = "Assets/Gui/Groups/Title.nugroup"
         let PickGroupFilePath = "Assets/Gui/Groups/Pick.nugroup"
         let IntroGroupFilePath = "Assets/Gui/Groups/Intro.nugroup"
@@ -166,7 +166,6 @@ module Assets =
         let ReadySound = asset<Sound> PackageName "Ready"
         let BuffSound = asset<Sound> PackageName "Buff"
         let DebuffSound = asset<Sound> PackageName "Debuff"
-        let FieldSong = { FadeOutTime = Constants.Audio.FadeOutTimeDefault; FadeInTime = 0L; StartTime = 0L; Volume = Constants.Audio.SongVolumeDefault; Song = asset<Song> PackageName "Field" }
 
     [<RequireQualifiedAccess>]
     module Battle =
@@ -192,8 +191,6 @@ module Assets =
         let SilenceAnimationSheet = asset<Image> PackageName "Silence"
         let SleepAnimationSheet = asset<Image> PackageName "Sleep"
         let ConfuseAnimationSheet = asset<Image> PackageName "Confuse"
-        let CandleAnimationSheet = asset<Image> PackageName "Candle"
-        let StaticAnimationSheet = asset<Image> PackageName "Static"
         let FireAnimationSheet = asset<Image> PackageName "Fire"
         let BurnAnimationSheet = asset<Image> PackageName "Burn"
         let FlameAnimationSheet = asset<Image> PackageName "Flame"
@@ -219,3 +216,4 @@ module Assets =
         let ShieldDebuffImage = asset<Image> PackageName "ShieldDebuff"
         let TimeDebuffImage = asset<Image> PackageName "TimeDebuff"
         let FireSpinAnimationSheet = asset<Image> PackageName "FireSpin"
+        let EternalSlumber = asset<Song> PackageName "EternalSlumber"

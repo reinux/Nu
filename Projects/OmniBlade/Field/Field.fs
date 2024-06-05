@@ -750,8 +750,8 @@ module Field =
         | Cue.PlaySound (volume, sound) ->
             (Fin, definitions, withSignal (ScheduleSound (0L, volume, sound)) field)
 
-        | Cue.PlaySong (fadeOut, fadeIn, start, volume, song) ->
-            (Fin, definitions, withSignal (PlaySong (fadeOut, fadeIn, start, volume, song)) field)
+        | Cue.PlaySong (fadeIn, fadeOut, start, volume, song) ->
+            (Fin, definitions, withSignal (PlaySong (fadeIn, fadeOut, start, volume, song)) field)
 
         | Cue.FadeOutSong fade ->
             (Fin, definitions, withSignal (FadeOutSong fade) field)
@@ -1048,7 +1048,12 @@ module Field =
             | Some _ -> (cue, definitions, just field)
 
         | Battle (battleType, consequents) ->
-            (Fin, definitions, withSignal (TryCommencingBattle (battleType, consequents)) field)
+            (BattleState, definitions, withSignal (TryCommencingBattle (battleType, consequents)) field)
+
+        | BattleState ->
+            match field.FieldState_ with
+            | Playing -> (Fin, definitions, just field)
+            | _ -> (cue, definitions, just field)
 
         | If (p, c, a) ->
             match p with

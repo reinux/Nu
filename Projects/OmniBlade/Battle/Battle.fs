@@ -33,6 +33,7 @@ type BattleCommand =
     | FadeOutSong of GameTime
     | DisplayHop of Vector3 * Vector3
     | DisplayCircle of Vector3 * single
+    | DisplayFade of int64 * int64 * int64 * int64 * Color
     | DisplayHitPointsChange of CharacterIndex * int
     | DisplayCancel of CharacterIndex
     | DisplayCut of int64 * bool * CharacterIndex
@@ -48,7 +49,6 @@ type BattleCommand =
     | DisplayBuff of int64 * StatusType * CharacterIndex
     | DisplayDebuff of int64 * StatusType * CharacterIndex
     | DisplayImpactSplash of int64 * CharacterIndex
-    | DisplayArcaneCast of int64 * CharacterIndex
     | DisplayHolyCast of int64 * CharacterIndex
     | DisplayDimensionalCast of int64 * CharacterIndex
     | DisplayGenericCast of int64 * CharacterIndex
@@ -553,7 +553,7 @@ module Battle =
         mapAlliesHealthy (Character.animate battle.BattleTime_ ReadyAnimation) battle
 
     let animateAlliesPoised battle =
-        mapAllies (Character.animate battle.BattleTime_ (PoiseAnimation Poising)) battle
+        mapAlliesHealthy (Character.animate battle.BattleTime_ (PoiseAnimation Poising)) battle
 
     let animateEnemiesPoised battle =
         mapEnemies (Character.animate battle.BattleTime_ (PoiseAnimation Poising)) battle
@@ -1133,7 +1133,7 @@ module Battle =
                         | (true, consumableData) ->
                             if consumableData.Curative then
                                 let healing0 = int consumableData.Scalar
-                                let healing1 = if (getCharacterStatuses targetIndex battle).ContainsKey Curse then 0 else healing0
+                                let healing1 = if (getCharacterStatuses targetIndex battle).ContainsKey StatusType.Curse then 0 else healing0
                                 let healing = max 0 healing1
                                 let battle =
                                     if consumableData.Techative
@@ -1173,8 +1173,8 @@ module Battle =
                 if containsCharacter targetIndex battle then
                     match (Map.tryFind techType Data.Value.Techs, Map.tryFind techType Data.Value.TechAnimations) with
                     | (Some techData, Some techAnimationData) ->
-                        ignore techData // TODO: check for target.IsWounded case if techData is affecting wounded...
-                        if getCharacterHealthy targetIndex battle then
+                        let affectingWounded = techData.TechType = Vita // TODO: pull from tech data.
+                        if affectingWounded || getCharacterHealthy targetIndex battle then
                             let (sigs, battle) =
                                 if localTime = techAnimationData.TechStart then
                                     let sourcePerimeter = getCharacterPerimeter sourceIndex battle
@@ -1199,7 +1199,7 @@ module Battle =
                                                 Right [signal playCharge; signal displayCast]
                                             | Wizard ->
                                                 let playCharge = PlaySound (0L, Constants.Audio.SongVolumeDefault, Assets.Field.ChargeDimensionSound)
-                                                let displayCast = DisplayArcaneCast (0L, sourceIndex)
+                                                let displayCast = DisplayGenericCast (0L, sourceIndex)
                                                 Right [playCharge; displayCast]
                                             | Conjuror ->
                                                 let playCharge = PlaySound (0L, Constants.Audio.SongVolumeDefault, Assets.Field.ChargeDimensionSound)
@@ -1214,7 +1214,7 @@ module Battle =
                                         let battle = animateCharacter (PoiseAnimation Poising) sourceIndex battle
                                         withSignal hopEffect battle
                                     | Right chargeEffects ->
-                                        if getCharacterHealthy targetIndex battle then
+                                        if affectingWounded || getCharacterHealthy targetIndex battle then
                                             let battle = animateCharacter (PoiseAnimation Charging) sourceIndex battle
                                             withSignals chargeEffects battle
                                         else just (abortCharacterInteraction sourceIndex battle)
@@ -1305,7 +1305,7 @@ module Battle =
                                         let battle = animateCharacter Cast2Animation sourceIndex battle
                                         withSignals [playIce; displayIce] battle
                                     | Snowball ->
-                                        let playSnowball = PlaySound (5L, Constants.Audio.SoundVolumeDefault, Assets.Field.SnowballSound)
+                                        let playSnowball = PlaySound (20L, Constants.Audio.SoundVolumeDefault, Assets.Field.SnowballSound)
                                         let displaySnowball = DisplaySnowball (0L, targetIndex)
                                         let battle = animateCharacter Cast2Animation sourceIndex battle
                                         withSignals [playSnowball; displaySnowball] battle
@@ -1334,7 +1334,7 @@ module Battle =
                                         let displayBuff = DisplayBuff (0L, Shield (true, true), targetIndex)
                                         let battle = animateCharacter Cast2Animation sourceIndex battle
                                         withSignals [playBuff; displayBuff] battle
-                                    | Purify ->
+                                    | Vita | Purify -> // HACK: just using purify effect for vita since it's unused in demp.
                                         let displayPurify = DisplayPurify (0L, targetIndex)
                                         let battle = animateCharacter Cast2Animation sourceIndex battle
                                         withSignal displayPurify battle
@@ -1372,8 +1372,9 @@ module Battle =
                                     | Inferno ->
                                         let playInferno = PlaySound (10L, Constants.Audio.SoundVolumeDefault, Assets.Field.InfernoSound)
                                         let displayInferno = DisplayInferno 0L
+                                        let displayRedFade = DisplayFade (0L, 20L, 40L, 20L, Color (1.0f, 0.0f, 0.0f, 0.3f))
                                         let battle = animateCharacter Cast2Animation sourceIndex battle
-                                        withSignals [playInferno; displayInferno] battle
+                                        withSignals [playInferno; displayRedFade; displayInferno] battle
                                     | Silk ->
                                         let playSilk = PlaySound (0L, Constants.Audio.SoundVolumeDefault, Assets.Field.SilkSound)
                                         let displaySilk = DisplaySilk (0L, targetIndex)
@@ -1769,7 +1770,7 @@ module Battle =
                     if List.forall (fun (character : Character) -> character.Wounded) allies then
                         // lost battle
                         let battle = animateCharactersCelebrate false battle
-                        let battle = setBattleState (BattleConcluding (battle.BattleTime_, false)) battle
+                        let battle = setBattleState (BattleResult (battle.BattleTime_, false)) battle
                         let (sigs2, battle) = update battle
                         (sigs @ sigs2, battle)
                     elif List.isEmpty enemies then
@@ -1788,7 +1789,7 @@ module Battle =
         if localTime = 0L then // first frame after transitioning in
             let battle = animateEnemiesPoised battle
             match battle.BattleSongOpt_ with
-            | Some battleSong -> withSignal (PlaySong (Constants.Audio.FadeOutTimeDefault, 0L, 0L, 0.5f, battleSong)) battle
+            | Some battleSong -> withSignal (PlaySong (0L, Constants.Audio.FadeOutTimeDefault, 0L, 0.5f, battleSong)) battle
             | None -> just battle
         elif localTime = 36L then
             let battle = animateAlliesReady battle
@@ -1847,7 +1848,8 @@ module Battle =
                         not (Map.containsKey Sleep source.Statuses) &&
                         (not (Map.containsKey Silence source.Statuses) || // NOTE: silence only blocks non-enemy, non-charge techs.
                          source.Enemy && match source.TechChargeOpt with Some (_, chargeAmount, _) -> chargeAmount >= Constants.Battle.ChargeMax | _ -> false) then
-                        let targetIndexOpt = evalRetarget false targetIndexOpt battle // TODO: consider affecting wounded, such as for Revive tech.
+                        let affectingWounded = techType = Vita // TODO: pull from tech data.
+                        let targetIndexOpt = evalRetarget affectingWounded targetIndexOpt battle
                         let command = { command with ActionCommand = { command.ActionCommand with TargetIndexOpt = targetIndexOpt }}
                         setCurrentCommandOpt (Some command) battle
                     else battle
@@ -1976,36 +1978,36 @@ module Battle =
 
     and private updateResult startTime outcome (battle : Battle) =
         let localTime = battle.BattleTime_ - startTime
-        if localTime = 0L then
-            let alliesLevelingUp =
-                battle |> getAllies |> Map.toValueList |>
-                List.filter (fun ally -> ally.HitPoints > 0) |>
-                List.filter (fun ally -> Algorithms.expPointsRemainingForNextLevel ally.ExpPoints <= battle.PrizePool.Exp)
-            let textA =
-                match alliesLevelingUp with
-                | _ :: _ -> "Level up for " + (alliesLevelingUp |> List.map (fun c -> c.Name) |> String.join ", ") + "!^"
-                | [] -> "Enemies defeated!^"
-            let textB =
-                alliesLevelingUp |>
-                List.choose (fun ally ->
-                    let techs = Algorithms.expPointsToTechs3 ally.ExpPoints battle.PrizePool_.Exp ally.ArchetypeType
-                    if Set.notEmpty techs then Some (ally, techs) else None) |>
-                List.map (fun (ally, techs) ->
-                    let text = techs |> Set.toList |> List.map scstring |> String.join ", "
-                    ally.Name + " learned " + text + "!") |>
-                function
-                | _ :: _ as texts -> String.join "\n" texts + "^"
-                | [] -> ""
-            let textC = "Gained " + string battle.PrizePool_.Exp + " Exp!\nGained " + string battle.PrizePool_.Gold + " Gold!"
-            let textD =
-                match battle.PrizePool_.Items with
-                | _ :: _ as items -> "^Found " + (items |> List.map (fun i -> ItemType.getName i) |> String.join ", ") + "!"
-                | [] -> ""
-            let text = textA + textB + textC + textD
-            let dialog = Dialog.make DialogThick text
-            let battle = setDialogOpt (Some dialog) battle
-            let (sigs, battle) =
-                if outcome then
+        if outcome then
+            if localTime = 0L then
+                let alliesLevelingUp =
+                    battle |> getAllies |> Map.toValueList |>
+                    List.filter (fun ally -> ally.HitPoints > 0) |>
+                    List.filter (fun ally -> Algorithms.expPointsRemainingForNextLevel ally.ExpPoints <= battle.PrizePool.Exp)
+                let textA =
+                    match alliesLevelingUp with
+                    | _ :: _ -> "Level up for " + (alliesLevelingUp |> List.map (fun c -> c.Name) |> String.join ", ") + "!^"
+                    | [] -> "Enemies defeated!^"
+                let textB =
+                    alliesLevelingUp |>
+                    List.choose (fun ally ->
+                        let techs = Algorithms.expPointsToTechs3 ally.ExpPoints battle.PrizePool_.Exp ally.ArchetypeType
+                        if Set.notEmpty techs then Some (ally, techs) else None) |>
+                    List.map (fun (ally, techs) ->
+                        let text = techs |> Set.toList |> List.map scstring |> String.join ", "
+                        ally.Name + " learned " + text + "!") |>
+                    function
+                    | _ :: _ as texts -> String.join "\n" texts + "^"
+                    | [] -> ""
+                let textC = "Gained " + string battle.PrizePool_.Exp + " Exp!\nGained " + string battle.PrizePool_.Gold + " Gold!"
+                let textD =
+                    match battle.PrizePool_.Items with
+                    | _ :: _ as items -> "^Found " + (items |> List.map (fun i -> ItemType.getName i) |> String.join ", ") + "!"
+                    | [] -> ""
+                let text = textA + textB + textC + textD
+                let dialog = Dialog.make DialogThick text
+                let battle = setDialogOpt (Some dialog) battle
+                let (sigs, battle) =
                     let battle = mapAllies (fun ally -> if ally.Healthy then Character.setExpPoints (ally.ExpPoints + battle.PrizePool_.Exp) ally else ally) battle
                     let battle =
                         mapAllies (fun ally ->
@@ -2018,14 +2020,29 @@ module Battle =
                     if List.notEmpty alliesLevelingUp
                     then withSignal (PlaySound (0L, Constants.Audio.SoundVolumeDefault, Assets.Field.GrowthSound)) battle
                     else just battle
-                else just battle
-            (signal (FadeOutSong 360L) :: sigs, battle)
+                (signal (FadeOutSong 360L) :: sigs, battle)
+            else
+                match battle.DialogOpt_ with
+                | None ->
+                    let battle = setBattleState (BattleConcluding (battle.BattleTime_, outcome)) battle
+                    update battle
+                | Some _ -> just battle
         else
-            match battle.DialogOpt_ with
-            | None ->
-                let battle = setBattleState (BattleConcluding (battle.BattleTime_, outcome)) battle
-                update battle
-            | Some _ -> just battle
+            if localTime = 0L then
+                withSignal (FadeOutSong 240L) battle
+            elif localTime = 240L then
+                let dialog = Dialog.make DialogThin "And so eternal death became his slumber..."
+                let battle = setDialogOpt (Some dialog) battle
+                let playEternalSlumber = PlaySong (60L, 0L, 0L, 0.5f, Assets.Battle.EternalSlumber)
+                withSignal playEternalSlumber battle
+            elif localTime > 240L then
+                match battle.DialogOpt_ with
+                | None ->
+                    let battle = setBattleState (BattleConcluding (battle.BattleTime_, outcome)) battle
+                    let (sigs, battle) = update battle
+                    withSignals (FadeOutSong 60L :: sigs) battle
+                | Some _ -> just battle
+            else just battle
 
     and private updateConcluding startTime (battle : Battle) =
         let localTime = battle.BattleTime_ - startTime

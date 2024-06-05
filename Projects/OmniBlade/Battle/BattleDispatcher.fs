@@ -171,8 +171,8 @@ type BattleDispatcher () =
             let world = World.schedule delay (fun world -> World.playSound volume sound world; world) screen world
             just world
 
-        | PlaySong (fadeOut, fadeIn, start, volume, assetTag) ->
-            World.playSong fadeOut fadeIn start volume assetTag world
+        | PlaySong (fadeIn, fadeOut, start, volume, assetTag) ->
+            World.playSong fadeIn fadeOut start volume assetTag world
             just world
 
         | FadeOutSong fade ->
@@ -192,6 +192,10 @@ type BattleDispatcher () =
             let world = entity.SetPosition position world
             let world = entity.SetSelfDestruct true world
             let world = entity.SetEffectDescriptor descriptor world
+            just world
+
+        | DisplayFade (delay, incoming, idle, outgoing, color) ->
+            let world = displayEffect delay v3Zero (Position v3Zero) Over (EffectDescriptors.fade incoming idle outgoing color) screen world
             just world
 
         | DisplayHitPointsChange (targetIndex, delta) ->
@@ -285,11 +289,6 @@ type BattleDispatcher () =
         | DisplayImpactSplash (delay, targetIndex) ->
             match Battle.tryGetCharacter targetIndex battle with
             | Some target -> displayEffect delay (v3 192.0f 96.0f 0.0f) (Bottom target.Perimeter.Bottom) Over EffectDescriptors.impactSplash screen world |> just
-            | None -> just world
-
-        | DisplayArcaneCast (delay, sourceIndex) ->
-            match Battle.tryGetCharacter sourceIndex battle with
-            | Some source -> displayEffect delay (v3 300.0f 300.0f 0.0f) (Bottom (source.Perimeter.Bottom - v3 0.0f 120.0f 0.0f)) Over EffectDescriptors.arcaneCast screen world |> just
             | None -> just world
 
         | DisplayHolyCast (delay, sourceIndex) ->
@@ -437,13 +436,13 @@ type BattleDispatcher () =
                                     if autoBattle.AutoTechOpt.IsSome then Color.Red.WithA8 pulseIntensity
                                     elif autoBattle.ChargeTech then Color.Purple.WithA8 pulseIntensity
                                     elif character.Statuses.ContainsKey Poison then Color.LawnGreen.WithA8 pulseIntensity
-                                    else Color.Red.WithA8 (byte 95)
+                                    else Color.Red.WithA8 (byte 127)
                                  | None ->
                                     if character.Statuses.ContainsKey Poison
                                     then Color.LawnGreen.WithA8 pulseIntensity
-                                    else Color.Red.WithA8 (byte 95))
+                                    else Color.Red.WithA8 (byte 127))
                              Entity.BorderImage == Assets.Gui.HealthBorderImage
-                             Entity.BorderColor := color8 (byte 60) (byte 60) (byte 60) (byte 191)]
+                             Entity.BorderColor := color8 (byte 60) (byte 60) (byte 60) (byte 191)] // TODO: use a constant.
 
                      // tech bar
                      for i in 0 .. dec 2 do
@@ -455,9 +454,9 @@ type BattleDispatcher () =
                                  Entity.Elevation := if i = 0 then Constants.Battle.GuiBackgroundElevation else Constants.Battle.GuiForegroundElevation
                                  Entity.Fill := single character.TechPoints / single character.TechPointsMax
                                  Entity.FillInset := 1.0f / 12.0f
-                                 Entity.FillColor == (color8 (byte 74) (byte 91) (byte 169) (byte 127)).WithA8 (byte 95)
+                                 Entity.FillColor == color8 (byte 74) (byte 91) (byte 255) (byte 191)// TODO: use a constant.
                                  Entity.BorderImage == Assets.Gui.TechBorderImage
-                                 Entity.BorderColor == color8 (byte 60) (byte 60) (byte 60) (byte 191)]]]
+                                 Entity.BorderColor == color8 (byte 60) (byte 60) (byte 60) (byte 191)]]] // TODO: use a constant.
 
          // inputs when running
          if battle.BattleState = BattleRunning then

@@ -137,7 +137,7 @@ type FieldDispatcher () =
                                 let fieldSong = overrideSong field.FieldType field.Advents fieldSong
                                 match currentSongOpt with
                                 | Some song when assetEq song fieldSong -> Nop
-                                | _ -> FieldCommand.PlaySong (30L, 0L, 0L, 0.5f, fieldSong)
+                                | _ -> FieldCommand.PlaySong (0L, 30L, 0L, 0.5f, fieldSong)
                             | None -> Nop
                         withSignals [warpAvatar; songCmd] field
 
@@ -473,7 +473,7 @@ type FieldDispatcher () =
             let field =
                 Field.mapMenu (fun menu ->
                     match menu.MenuState with
-                    | MenuKeyItems menuKeyItems -> { menu with MenuState = MenuKeyItems { KeyItemsPage = max 0 (dec menuKeyItems.KeyItemsPage) }}
+                    | MenuKeyItems menuKeyItems -> { menu with MenuState = MenuKeyItems { menuKeyItems with KeyItemsPage = max 0 (dec menuKeyItems.KeyItemsPage) }}
                     | _ -> menu)
                     field
             just field
@@ -482,12 +482,16 @@ type FieldDispatcher () =
             let field =
                 Field.mapMenu (fun menu ->
                     match menu.MenuState with
-                    | MenuKeyItems menuKeyItems -> { menu with MenuState = MenuKeyItems { KeyItemsPage = inc menuKeyItems.KeyItemsPage }}
+                    | MenuKeyItems menuKeyItems -> { menu with MenuState = MenuKeyItems { menuKeyItems with KeyItemsPage = inc menuKeyItems.KeyItemsPage }}
                     | _ -> menu)
                     field
             just field
 
-        | MenuKeyItemsSelect _ ->
+        | MenuKeyItemsSelect (index, (itemType, _)) ->
+            let field =
+                Field.mapMenu (fun menu ->
+                    { menu with MenuUseOpt = MenuUse.tryMakeFromSelection (index, itemType) })
+                    field
             just field
 
         | MenuOptionsOpen ->
@@ -731,7 +735,7 @@ type FieldDispatcher () =
                         let fadeIn = if playTime <> 0L then Constants.Field.FieldSongFadeInTime else 0L
                         let field = Field.setFieldSongTimeOpt (Some startTime) field
                         let world = screen.SetField field world
-                        withSignal (FieldCommand.PlaySong (30L, fadeIn, playTime, 0.5f, fieldSong)) world
+                        withSignal (FieldCommand.PlaySong (fadeIn, 30L, playTime, 0.5f, fieldSong)) world
                     else just world
                 | (Some fieldSong, None) ->
                     let fieldSong = overrideSong field.FieldType field.Advents fieldSong
@@ -747,7 +751,7 @@ type FieldDispatcher () =
                     let fadeIn = if playTime <> 0L then Constants.Field.FieldSongFadeInTime else 0L
                     let field = Field.setFieldSongTimeOpt (Some startTime) field
                     let world = screen.SetField field world
-                    withSignal (FieldCommand.PlaySong (30L, fadeIn, playTime, 0.5f, fieldSong)) world
+                    withSignal (FieldCommand.PlaySong (fadeIn, 30L, playTime, 0.5f, fieldSong)) world
                 | (None, _) -> just world
             | (false, _) -> just world
 
@@ -776,8 +780,8 @@ type FieldDispatcher () =
             let world = World.schedule delay (fun world -> World.playSound volume sound world; world) screen world
             just world
 
-        | PlaySong (fadeOut, fadeIn, start, volume, assetTag) ->
-            World.playSong fadeOut fadeIn start volume assetTag world
+        | PlaySong (fadeIn, fadeOut, start, volume, assetTag) ->
+            World.playSong fadeIn fadeOut start volume assetTag world
             just world
 
         | FadeOutSong fade ->
@@ -1441,8 +1445,8 @@ type FieldDispatcher () =
                              Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
                              Entity.Text := menuUse.MenuUseLine2]
                          Content.text "Line3"
-                            [Entity.PositionLocal == v3 66.0f 270.0f 0.0f; Entity.ElevationLocal == 1.0f
-                             Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
+                            [Entity.PositionLocal == v3 66.0f 90.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 810.0f 32.0f 0.0f
+                             Entity.Justification == Unjustified true
                              Entity.Text := menuUse.MenuUseLine3]
                          yield! Content.team (v3 160.0f 183.0f 0.0f) 3 field (fun teammate menu ->
                             match menu.MenuUseOpt with
@@ -1467,8 +1471,8 @@ type FieldDispatcher () =
                              Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
                              Entity.Text := menuUse.MenuUseLine2]
                         Content.text "Line3"
-                            [Entity.PositionLocal == v3 66.0f 90.0f 0.0f; Entity.ElevationLocal == 1.0f
-                             Entity.Justification == Justified (JustifyLeft, JustifyMiddle)
+                            [Entity.PositionLocal == v3 66.0f 90.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 810.0f 32.0f 0.0f
+                             Entity.Justification == Unjustified true
                              Entity.Text := menuUse.MenuUseLine3]]
              | None -> ()
 

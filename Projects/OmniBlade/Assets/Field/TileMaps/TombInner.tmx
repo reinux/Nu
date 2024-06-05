@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<map version="1.10" tiledversion="1.10.1" orientation="orthogonal" renderorder="right-down" width="64" height="64" tilewidth="48" tileheight="48" infinite="0" nextlayerid="7" nextobjectid="20">
+<map version="1.10" tiledversion="1.10.1" orientation="orthogonal" renderorder="right-down" width="64" height="64" tilewidth="48" tileheight="48" infinite="0" nextlayerid="8" nextobjectid="45">
  <tileset firstgid="1" source="TombInner.tsx"/>
  <layer id="6" name="Basement" width="64" height="64">
   <data encoding="base64" compression="zlib">
@@ -8,17 +8,17 @@
  </layer>
  <layer id="2" name="Ground" width="64" height="64">
   <data encoding="base64" compression="zlib">
-   eJzt2lsOgjAQBVBwae5Y16T7UD+IhJRy5z19TMKXML2nrRiIy9JH3W//Y7Ta23uZA4pnO+exLstz7WMeSp7aub/j9T33vba7F465jx7kmrMje3EMqD2Tn5K5ZpBcG1ES99EgnTvv0rBL/C2bp3Xapz2fP9o77WPbIyraHOW2tpeeW1uzS649e25t3U7p0ePaU/tks3Nze/TyKu49TNovg/1XaNbSPUzSM6o07lWIIZt7nwn9PZauYSb7Pg/ye+yxh73nR3PvW/it5yCL/djr6vvYs53yfYy0R44tzdOLmZPRw+3ppebt2Y1k79195dC0R/s4c6Dl9963knHR66PskqKOkcWvWZ7+SPNVL6kfyezllvSunYv01HgfYGnmrhM6hvR9gKUTHVfit3BbjlvKQP3Myu7lRtbZKlMmO3dvaPujrUjO7P5aZc5pvbc442jPpZdfIzu1svlrBm07xxLlt7ajY3n4qeNYeqXrouG3XPOtF/Ic5OVHxtGqrR/3f0pefqvSyNWqnZpfo0c2O5pfo0dWe6kk2Vq3a9Ro3lKN6t7X9Mf5P74LKfM=
+   eJztmwtOwzAMhjt2sz0Qx9qV4ExwD1Yhi2AlfjtOJX5pKlaa1Gn72U7YLi/bdj1v2+35eXt+jirw//Ki77f3uZ+3x+2g82/9vynvwevZfu8yBf6Af5TA//fTtn2cdPO5/17nsdL7v/sD8wH/RudC++fz3K/T3/ncF5oTJ3hmEI9gPlfiHbig+DWyVxfmt2fjPtB+/XnOj/28Uf9VhOPNyL522ltx/TXxY4ZaHjGfUhvGsvSvlIRPiW0dr0ISnnv2/jfYFM+986vecwl/M+wKeXiOtCvk5VlqAwcr5fcofiPiwWxp+dyPWfzP1j/vej4l/ErtKln5be0Rv+26leK/au6e+lrCM1q3LlW/S3jkdFTewfeI+toTHyrF1duafGzJ79WS5mOIYRHxoDrWt5LyCTGst17HOjrv0nxOqd3jWSG/g09UPsZ8crb0etX5HaTJxzP4nR0Pouv1DH8yFVnfe4THBx4z6wNL/Z6xHu+NBzxy/nmu6V2PW5W1H6jRbL5n7hdIfNHme62i9/t67fvREh+4+t6z/rbsF1DrgV68ofxtxx9JwpNl3ln7fdH1iJefVpX7gdZ4wPFleeZR6wdr/OLGx357effWC5n1AxcPIur3yvrB6g/Im99XWR9w7aP9BQmvFI9e/qTyxIuRfzAuxye1Py/l3Tpnbf0wut5ofyJqf95TP8zI96P2zHxLzXl2vqf8y/h/3UjW8Tz+4XcM709S+bK1pfmces819X+UP1x9E81fTyvU/1x9E8VfTyvGk944Ft5wO5aF5/2oXQ9o4gMlD589/qX8UvW6dH3giU/UmB7+M/gdievvlYX/jPzeU/Z6o5WX/5Zv3F+a33vzt/AukbT+7smav7l8LvEvQnAve7+veUXPkuov5bsdT8M/l9+tAn5Gv69pbap/Nv9Zivh+noZv/MxX+D6QNF9TwnxCX009UCmOX4mi9+8r5eFxZd5nKTNfH0UZ+fpoqo7t1eLqh0x9A+vvxBk=
   </data>
  </layer>
  <layer id="5" name="Flooring" width="64" height="64">
   <data encoding="base64" compression="zlib">
-   eJztwTEBAAAAwqD1T20MH6AAAAAAAAAAAAAAAAAAAACAtwFAAAAB
+   eJzt2tsNgCAMAEDi/iuqq/hvTERBkHI3AYS+0pASQDzb0vsEdaxB7nEnynvBWc3Y3uUJP6JuA0C+q76plwIjU8OIQixDW09yrlZ+2qnCN/RQAEYxy5+bUeTMEK3mDPMMpcQQzMN+6T2zGAAAQLkDHDYSYQ==
   </data>
  </layer>
  <layer id="1" name="Furnishing" width="64" height="64">
   <data encoding="base64" compression="zlib">
-   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
+   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
   </data>
  </layer>
  <layer id="4" name="Ceiling" width="64" height="64">
@@ -72,22 +72,117 @@
     <property name="I" value="[Seal [0.625 0.53 0 0.5] [Dialog &quot;Sealed...&quot;] [LakeSealed]]"/>
    </properties>
   </object>
-  <object id="13" gid="235" x="1584" y="2544" width="48" height="48">
+  <object id="13" gid="235" x="1248" y="2400" width="48" height="48">
    <properties>
     <property name="I" value="[Flame SmallFlame]"/>
    </properties>
   </object>
-  <object id="14" gid="235" x="1776.33" y="2544" width="48" height="48">
+  <object id="14" gid="235" x="1968" y="2448" width="48" height="48">
    <properties>
     <property name="I" value="[Flame SmallFlame]"/>
    </properties>
   </object>
-  <object id="15" gid="235" x="1680" y="2496" width="48" height="48">
+  <object id="16" gid="235" x="1776" y="2832" width="48" height="48">
    <properties>
     <property name="I" value="[Flame SmallFlame]"/>
    </properties>
   </object>
-  <object id="16" gid="235" x="1680" y="2592" width="48" height="48">
+  <object id="25" gid="235" x="2016" y="2064" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="26" gid="235" x="2304" y="1488" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="27" gid="235" x="1776" y="1488" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="28" gid="235" x="624" y="2112" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="29" gid="235" x="768" y="2832" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="30" gid="235" x="288" y="2016" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="31" gid="235" x="96" y="1536" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="32" gid="235" x="384" y="1344" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="33" gid="235" x="1008" y="1200" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="34" gid="235" x="816" y="624" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="35" gid="235" x="1248" y="480" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="36" gid="235" x="1488" y="960" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="37" gid="235" x="1728" y="960" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="38" gid="235" x="1680" y="336" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="39" gid="235" x="1968" y="288" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="40" gid="235" x="2160" y="480" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="41" gid="235" x="2640" y="240" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="42" gid="235" x="1200" y="1680" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="43" gid="235" x="2448" y="2064" width="48" height="48">
+   <properties>
+    <property name="I" value="[Flame SmallFlame]"/>
+   </properties>
+  </object>
+  <object id="44" gid="235" x="1440" y="2784" width="48" height="48">
    <properties>
     <property name="I" value="[Flame SmallFlame]"/>
    </properties>
