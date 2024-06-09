@@ -121,14 +121,17 @@ module WorldModuleScreen =
             | :? 'a as model -> model
             | null -> null :> obj :?> 'a
             | modelObj ->
-                try let model = modelObj |> valueToSymbol |> symbolToValue
-                    screenState.Model.DesignerValue <- model
+                let modelSymbol = valueToSymbol modelObj
+                try let model = symbolToValue modelSymbol
+                    screenState.Model <- { DesignerType = typeof<'a>; DesignerValue = model }
                     model
                 with _ ->
-                    Log.debugOnce "Could not convert existing screen model to new type. Falling back on initial model value."
-                    match screenState.Dispatcher.TryGetInitialModel<'a> world with
+                    Log.warn "Could not convert existing screen model value to new type; using fallback model value instead."
+                    match screenState.Dispatcher.TryGetFallbackModel<'a> (modelSymbol, screen, world) with
                     | None -> failwithnie ()
-                    | Some value -> value
+                    | Some model ->
+                        screenState.Model <- { DesignerType = typeof<'a>; DesignerValue = model }
+                        model
 
         static member internal setScreenModelGeneric<'a> initializing (value : 'a) screen world =
             let screenState = World.getScreenState screen world

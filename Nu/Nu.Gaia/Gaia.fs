@@ -59,7 +59,7 @@ module Gaia =
     let mutable private DragEntityState = DragEntityInactive
     let mutable private DragEyeState = DragEyeInactive
     let mutable private SelectedScreen = Game / "Screen" // TODO: see if this is necessary or if we can just use World.getSelectedScreen.
-    let mutable private SelectedGroup = SelectedScreen / "Group"
+    let mutable private SelectedGroup = SelectedScreen / "Group" // use the default group
     let mutable private SelectedEntityOpt = Option<Entity>.None
     let mutable private OpenProjectFilePath = null // this will be initialized on start
     let mutable private OpenProjectEditMode = "Title"
@@ -681,13 +681,26 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
         else (Cascade, world)
 
     let private handleNuLifeCycleGroup (evt : Event<LifeCycleData, Game>) world =
-        match evt.Data with
-        | RegisterData simulant ->
-            match simulant with
-            | :? Group as group when group.Selected world && group.Name = "Scene" ->
-                selectGroup group // select newly created Scene group since it's more likely to be the group the user wants to edit.
-            | _ -> ()
-        | _ -> ()
+        let world =
+            match evt.Data with
+            | RegisterData simulant ->
+                match simulant with
+                | :? Group as group when group.Selected world && group.Name = "Scene" ->
+                    selectGroup group // select newly created Scene group since it's more likely to be the group the user wants to edit.
+                    world
+                | _ -> world
+            | UnregisteringData simulant ->
+                if SelectedGroup :> Simulant = simulant then
+                    let groups = World.getGroups SelectedScreen world
+                    if Seq.isEmpty groups then
+                        let (group, world) = World.createGroup (Some "Group") SelectedScreen world // create default group if no group remains
+                        SelectedGroup <- group
+                        world
+                    else
+                        SelectedGroup <- Seq.head groups
+                        world
+                else world
+            | _ -> world
         (Cascade, world)
 
     let private handleNuSelectedScreenOptChange (evt : Event<ChangeData, Game>) world =
@@ -739,7 +752,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                         let plane = plane3 (eyeCenter + forward * NewEntityDistance) -forward
                         (ray.Intersection plane).Value
                     elif not (entity.GetAbsolute world) then
-                        eyeCenter + Vector3.Transform (v3Forward, eyeRotation) * NewEntityDistance
+                        eyeCenter + v3Forward.Transform eyeRotation * NewEntityDistance
                     else v3Zero
                 let attributes = entity.GetAttributesInferred world
                 entityTransform.Position <- entityPosition
@@ -1336,7 +1349,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                             let world =
                                 match Option.bind (tryResolve entity) (entity.GetMountOpt world) with
                                 | Some parent ->
-                                    let entityPositionLocal = Vector3.Transform (entityPositionConstrained, (parent.GetAffineMatrix world).Inverted)
+                                    let entityPositionLocal = entityPositionConstrained.Transform (parent.GetAffineMatrix world).Inverted
                                     entity.SetPositionLocal entityPositionLocal world
                                 | None -> entity.SetPosition entityPositionConstrained world
                             let world =
@@ -1419,23 +1432,23 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                 if ImGui.IsShiftDown () && ImGui.IsEnterUp () then 0.025f
                 else 0.05f
             if ImGui.IsKeyDown ImGuiKey.W && ImGui.IsCtrlUp () then
-                DesiredEye3dCenter <- position + Vector3.Transform (v3Forward, rotation) * moveSpeed
+                DesiredEye3dCenter <- position + v3Forward.Transform rotation * moveSpeed
             if ImGui.IsKeyDown ImGuiKey.S && ImGui.IsCtrlUp () then
-                DesiredEye3dCenter <- position + Vector3.Transform (v3Back, rotation) * moveSpeed
+                DesiredEye3dCenter <- position + v3Back.Transform rotation * moveSpeed
             if ImGui.IsKeyDown ImGuiKey.A && ImGui.IsCtrlUp () then
-                DesiredEye3dCenter <- position + Vector3.Transform (v3Left, rotation) * moveSpeed
+                DesiredEye3dCenter <- position + v3Left.Transform rotation * moveSpeed
             if ImGui.IsKeyDown ImGuiKey.D && ImGui.IsCtrlUp () then
-                DesiredEye3dCenter <- position + Vector3.Transform (v3Right, rotation) * moveSpeed
+                DesiredEye3dCenter <- position + v3Right.Transform rotation * moveSpeed
             if ImGui.IsKeyDown (if AlternativeEyeTravelInput then ImGuiKey.UpArrow else ImGuiKey.E) && ImGui.IsCtrlUp () then
                 let rotation' = rotation * Quaternion.CreateFromAxisAngle (v3Right, turnSpeed)
-                if Vector3.Dot (rotation'.Forward, v3Up) < 0.99f then DesiredEye3dRotation <- rotation'
+                if rotation'.Forward.Dot v3Up < 0.99f then DesiredEye3dRotation <- rotation'
             if ImGui.IsKeyDown (if AlternativeEyeTravelInput then ImGuiKey.DownArrow else ImGuiKey.Q) && ImGui.IsCtrlUp () then
                 let rotation' = rotation * Quaternion.CreateFromAxisAngle (v3Left, turnSpeed)
-                if Vector3.Dot (rotation'.Forward, v3Down) < 0.99f then DesiredEye3dRotation <- rotation'
+                if rotation'.Forward.Dot v3Down < 0.99f then DesiredEye3dRotation <- rotation'
             if ImGui.IsKeyDown (if AlternativeEyeTravelInput then ImGuiKey.E else ImGuiKey.UpArrow) && ImGui.IsAltUp () then
-                DesiredEye3dCenter <- position + Vector3.Transform (v3Up, rotation) * moveSpeed
+                DesiredEye3dCenter <- position + v3Up.Transform rotation * moveSpeed
             if ImGui.IsKeyDown (if AlternativeEyeTravelInput then ImGuiKey.Q else ImGuiKey.DownArrow) && ImGui.IsAltUp () then
-                DesiredEye3dCenter <- position + Vector3.Transform (v3Down, rotation) * moveSpeed
+                DesiredEye3dCenter <- position + v3Down.Transform rotation * moveSpeed
             if ImGui.IsKeyDown ImGuiKey.LeftArrow && ImGui.IsAltUp () then
                 DesiredEye3dRotation <- Quaternion.CreateFromAxisAngle (v3Up, turnSpeed) * rotation
             if ImGui.IsKeyDown ImGuiKey.RightArrow && ImGui.IsAltUp () then
@@ -1519,7 +1532,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                     DesiredEye2dCenter <- (entity.GetPerimeterCenter world).V2
                 else
                     let eyeRotation = World.getEye3dRotation world
-                    let eyeCenterOffset = Vector3.Transform (v3Back * NewEntityDistance, eyeRotation)
+                    let eyeCenterOffset = (v3Back * NewEntityDistance).Transform eyeRotation
                     DesiredEye3dCenter <- entity.GetPosition world + eyeCenterOffset
         let popupContextItemTitle = "##popupContextItem" + scstringMemo entity
         let mutable openPopupContextItemWhenUnselected = false
@@ -3055,7 +3068,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                                 match Option.bind (tryResolve entity) (entity.GetMountOpt world) with
                                 | Some mount ->
                                     let mountAffineMatrixInverse = (mount.GetAffineMatrix world).Inverted
-                                    let positionLocal = Vector3.Transform (position, mountAffineMatrixInverse)
+                                    let positionLocal = position.Transform mountAffineMatrixInverse
                                     let mountRotationInverse = (mount.GetRotation world).Inverted
                                     let rotationLocal = mountRotationInverse * rotation
                                     let rollPitchYawLocal = rotationLocal.RollPitchYaw
@@ -3614,56 +3627,60 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                     ImGui.Text ":"
                     ImGui.SameLine ()
                     ImGui.Text (Reflection.getSimplifiedTypeNameHack propertyDescriptor.PropertyType)
-                    let propertyValueSymbol = converter.ConvertTo (propertyValue, typeof<Symbol>) :?> Symbol
-                    let mutable propertyValueStr = PrettyPrinter.prettyPrintSymbol propertyValueSymbol PrettyPrinter.defaultPrinter
-                    let isPropertyAssetTag = propertyDescriptor.PropertyType.IsGenericType && propertyDescriptor.PropertyType.GetGenericTypeDefinition () = typedefof<_ AssetTag>
-                    if  isPropertyAssetTag then
-                        ImGui.SameLine ()
-                        if ImGui.Button "Pick" then searchAssetViewer ()
-                    let world =
-                        if  propertyDescriptor.PropertyName = Constants.Engine.FacetNamesPropertyName &&
-                            propertyDescriptor.PropertyType = typeof<string Set> then
-                            ImGui.InputTextMultiline ("##propertyValuePretty", &propertyValueStr, 4096u, v2 -1.0f -1.0f, ImGuiInputTextFlags.ReadOnly) |> ignore<bool>
-                            world
-                        elif ImGui.InputTextMultiline ("##propertyValuePretty", &propertyValueStr, 131072u, v2 -1.0f -1.0f) && propertyValueStr <> PropertyValueStrPrevious then
-                            let pasts = Pasts
-                            let world =
-                                try let propertyValueEscaped = propertyValueStr
-                                    let propertyValueUnescaped = String.unescape propertyValueEscaped
-                                    let propertyValueTruncated = converter.ConvertFromString propertyValueUnescaped
-                                    let propertyValue =
-                                        if propertyDescriptor.PropertyName = Constants.Engine.ModelPropertyName then
-                                            match World.tryUntruncateModel propertyValueTruncated simulant world with
-                                            | Some truncatedValue -> truncatedValue
-                                            | None -> propertyValueTruncated
-                                        else propertyValueTruncated
-                                    setPropertyValue propertyValue propertyDescriptor simulant world
-                                with _ ->
-                                    Pasts <- pasts
-                                    world
-                            PropertyValueStrPrevious <- propertyValueStr
-                            world
+                    try let propertyValueSymbol = converter.ConvertTo (propertyValue, typeof<Symbol>) :?> Symbol
+                        let mutable propertyValueStr = PrettyPrinter.prettyPrintSymbol propertyValueSymbol PrettyPrinter.defaultPrinter
+                        let isPropertyAssetTag = propertyDescriptor.PropertyType.IsGenericType && propertyDescriptor.PropertyType.GetGenericTypeDefinition () = typedefof<_ AssetTag>
+                        if  isPropertyAssetTag then
+                            ImGui.SameLine ()
+                            if ImGui.Button "Pick" then searchAssetViewer ()
+                        let world =
+                            if  propertyDescriptor.PropertyName = Constants.Engine.FacetNamesPropertyName &&
+                                propertyDescriptor.PropertyType = typeof<string Set> then
+                                ImGui.InputTextMultiline ("##propertyValuePretty", &propertyValueStr, 4096u, v2 -1.0f -1.0f, ImGuiInputTextFlags.ReadOnly) |> ignore<bool>
+                                world
+                            elif ImGui.InputTextMultiline ("##propertyValuePretty", &propertyValueStr, 131072u, v2 -1.0f -1.0f) && propertyValueStr <> PropertyValueStrPrevious then
+                                let pasts = Pasts
+                                let world =
+                                    try let propertyValueEscaped = propertyValueStr
+                                        let propertyValueUnescaped = String.unescape propertyValueEscaped
+                                        let propertyValueTruncated = converter.ConvertFromString propertyValueUnescaped
+                                        let propertyValue =
+                                            if propertyDescriptor.PropertyName = Constants.Engine.ModelPropertyName then
+                                                match World.tryUntruncateModel propertyValueTruncated simulant world with
+                                                | Some truncatedValue -> truncatedValue
+                                                | None -> propertyValueTruncated
+                                            else propertyValueTruncated
+                                        setPropertyValue propertyValue propertyDescriptor simulant world
+                                    with _ ->
+                                        Pasts <- pasts
+                                        world
+                                PropertyValueStrPrevious <- propertyValueStr
+                                world
+                            else world
+                        if isPropertyAssetTag then
+                            if ImGui.BeginDragDropTarget () then
+                                let world =
+                                    if not (NativePtr.isNullPtr (ImGui.AcceptDragDropPayload "Asset").NativePtr) then
+                                        match DragDropPayloadOpt with
+                                        | Some payload ->
+                                            let pasts = Pasts
+                                            try let propertyValueEscaped = payload
+                                                let propertyValueUnescaped = String.unescape propertyValueEscaped
+                                                let propertyValue = converter.ConvertFromString propertyValueUnescaped
+                                                setPropertyValue propertyValue propertyDescriptor simulant world
+                                            with _ ->
+                                                Pasts <- pasts
+                                                world
+                                        | None -> world
+                                    else world
+                                ImGui.EndDragDropTarget ()
+                                world
+                            else world
                         else world
-                    if isPropertyAssetTag then
-                        if ImGui.BeginDragDropTarget () then
-                            let world =
-                                if not (NativePtr.isNullPtr (ImGui.AcceptDragDropPayload "Asset").NativePtr) then
-                                    match DragDropPayloadOpt with
-                                    | Some payload ->
-                                        let pasts = Pasts
-                                        try let propertyValueEscaped = payload
-                                            let propertyValueUnescaped = String.unescape propertyValueEscaped
-                                            let propertyValue = converter.ConvertFromString propertyValueUnescaped
-                                            setPropertyValue propertyValue propertyDescriptor simulant world
-                                        with _ ->
-                                            Pasts <- pasts
-                                            world
-                                    | None -> world
-                                else world
-                            ImGui.EndDragDropTarget ()
-                            world
-                        else world
-                    else world
+                    with :? TargetException as exn ->
+                        PropertyFocusedOpt <- None
+                        Log.warn ("Encountered undesired exception due to likely logic problem in Nu: " + scstring exn)
+                        world
                 | Some _ | None -> world
             ImGui.End ()
             world
@@ -4036,8 +4053,8 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                 let slnDir = PathF.GetFullPath (programDir + "/../../../../..")
                 let (templateFileName, templateDir, editMode) =
                     match NewProjectType with
-                    | "Empty" -> ("Nu.Template.Empty.fsproj", PathF.GetFullPath (programDir + "/../../../../Nu.Template.Empty"), "") // no edit modes
-                    | "Game" | _ -> ("Nu.Template.Game.fsproj", PathF.GetFullPath (programDir + "/../../../../Nu.Template.Game"), "Title") // assume Title mode
+                    | "Empty" -> ("Nu.Template.Empty.fsproj", PathF.GetFullPath (programDir + "/../../../../Nu.Template.Empty"), "Initial")
+                    | "Game" | _ -> ("Nu.Template.Game.fsproj", PathF.GetFullPath (programDir + "/../../../../Nu.Template.Game"), "Title")
                 if Directory.Exists templateDir then
 
                     // attempt to create project files

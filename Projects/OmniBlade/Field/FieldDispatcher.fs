@@ -57,6 +57,11 @@ type FieldDispatcher () =
             true
         else false
 
+    override this.GetFallbackModel (_, screen, world) =
+        if screen.Selected world || Simulants.Battle.Selected world
+        then Field.initial world.UpdateTime Slot1
+        else Field.empty
+
     override this.Definitions (field, _) =
         [Screen.UpdateEvent => Update
          Screen.UpdateEvent => ProcessKeyInput
@@ -675,7 +680,7 @@ type FieldDispatcher () =
                 let position = viewport.MouseToWorld2d (false, position, eyeCenter, eyeSize)
                 let heading = position.V3 - lowerCenter
                 if heading.Magnitude >= 6.0f then // TODO: make constant DeadZoneRadius.
-                    let goalNormalized = Vector3.Normalize heading
+                    let goalNormalized = heading.Normalized
                     let force = goalNormalized * Constants.Field.AvatarWalkForceMouse
                     let moveAvatar = MoveAvatar force
                     let faceAvatar = FaceAvatar (Direction.ofVector3 heading)
@@ -1151,14 +1156,14 @@ type FieldDispatcher () =
                          Content.button "PageUp"
                             [Entity.PositionLocal == v3 462.0f 15.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 72.0f 72.0f 0.0f
                              Entity.Text == "<"
-                             Entity.VisibleLocal := Content.pageItems 4 field |> a__
+                             Entity.VisibleLocal := Content.pageItems 3 field |> a__
                              Entity.UpImage == Assets.Gui.ButtonSmallUpImage
                              Entity.DownImage == Assets.Gui.ButtonSmallDownImage
                              Entity.ClickEvent => MenuTeamEquipPageUp]
                          Content.button "PageDown"
                             [Entity.PositionLocal == v3 726.0f 15.0f 0.0f; Entity.ElevationLocal == 1.0f; Entity.Size == v3 72.0f 72.0f 0.0f
                              Entity.Text == ">"
-                             Entity.VisibleLocal := Content.pageItems 4 field |> _b_
+                             Entity.VisibleLocal := Content.pageItems 3 field |> _b_
                              Entity.UpImage == Assets.Gui.ButtonSmallUpImage
                              Entity.DownImage == Assets.Gui.ButtonSmallDownImage
                              Entity.ClickEvent => MenuTeamEquipPageDown]]

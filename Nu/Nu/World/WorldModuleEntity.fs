@@ -282,14 +282,17 @@ module WorldModuleEntity =
             | :? 'a as model -> model
             | null -> null :> obj :?> 'a
             | modelObj ->
-                try let model = modelObj |> valueToSymbol |> symbolToValue
-                    entityState.Model.DesignerValue <- model
+                let modelSymbol = valueToSymbol modelObj
+                try let model = symbolToValue modelSymbol
+                    entityState.Model <- { DesignerType = typeof<'a>; DesignerValue = model }
                     model
                 with _ ->
-                    Log.debugOnce "Could not convert existing entity model to new type. Falling back on initial model value."
-                    match entityState.Dispatcher.TryGetInitialModel<'a> world with
+                    Log.debugOnce "Could not convert existing entity model value to new type; using fallback model value instead."
+                    match entityState.Dispatcher.TryGetFallbackModel<'a> (modelSymbol, entity, world) with
                     | None -> failwithnie ()
-                    | Some value -> value
+                    | Some model ->
+                        entityState.Model <- { DesignerType = typeof<'a>; DesignerValue = model }
+                        model
 
         static member internal setEntityModelGeneric<'a> initializing (value : 'a) entity world =
             let entityState = World.getEntityState entity world
@@ -974,7 +977,7 @@ module WorldModuleEntity =
                         match Option.bind (tryResolve entity) entityState.MountOpt with
                         | Some mount when World.getEntityExists mount world ->
                             let affineMatrix = World.getEntityAffineMatrix mount world
-                            Vector3.Transform (value, affineMatrix)
+                            value.Transform affineMatrix
                         | _ -> value
                     entityState.Position <- position
                     let world = if entityState.Mounted then World.propagateEntityAffineMatrix entity world else world
@@ -1014,7 +1017,7 @@ module WorldModuleEntity =
                         match Option.bind (tryResolve entity) entityState.MountOpt with
                         | Some mount when World.getEntityExists mount world ->
                             let affineMatrix = World.getEntityAffineMatrix mount world
-                            Vector3.Transform (value, affineMatrix)
+                            value.Transform affineMatrix
                         | _ -> value
 
                     // update property

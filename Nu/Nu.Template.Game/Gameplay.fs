@@ -12,9 +12,7 @@ type GameplayState =
 // this is our MMCC model type representing gameplay.
 // this model representation uses update time, that is, time based on number of engine updates.
 // if you wish to use clock time instead (https://github.com/bryanedds/Nu/wiki/GameTime-and-its-Polymorphic-Nature),
-// you could use `GameplayTime : single` instead. If you're going to use Split MMCC instead of Pure MMCC, you won't
-// need this field at all and should remove it, using world.UpdateTime or world.ClockTime instead (see
-// https://github.com/bryanedds/Nu/wiki/Pure-MMCC-vs.-Split-MMCC)
+// you could use `GameplayTime : single`.
 type Gameplay =
     { GameplayTime : int64
       GameplayState : GameplayState }
@@ -53,6 +51,12 @@ module GameplayExtensions =
 // this is the dispatcher that defines the behavior of the screen where gameplay takes place.
 type GameplayDispatcher () =
     inherit ScreenDispatcher<Gameplay, GameplayMessage, GameplayCommand> (Gameplay.empty)
+
+    // here we define the screen's fallback model depending on whether screen is selected
+    override this.GetFallbackModel (_, screen, world) =
+        if screen.Selected world
+        then Gameplay.initial
+        else Gameplay.empty
 
     // here we define the screen's property values and event handling
     override this.Definitions (_, _) =

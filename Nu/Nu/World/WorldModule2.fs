@@ -1850,6 +1850,7 @@ module EntityDispatcherModule2 =
                 | null -> null :> obj :?> 'model
                 | modelObj ->
                     try let model = modelObj |> valueToSymbol |> symbolToValue
+                        property.DesignerType <- typeof<'model>
                         property.DesignerValue <- model
                         model
                     with _ ->
@@ -1889,8 +1890,8 @@ module EntityDispatcherModule2 =
                              "This may come about due to sending an incorrect signal type to the entity or due to too significant a change in the signal type when reloading code.")
                         world
 
-        override this.TryGetInitialModel<'a> world =
-            makeInitial world :> obj :?> 'a |> Some
+        override this.TryGetFallbackModel<'a> (modelSymbol, entity, world) =
+            this.GetFallbackModel (modelSymbol, entity, world) :> obj :?> 'a |> Some
 
         override this.TrySynchronize (initializing, entity, world) =
             let contentOld = World.getEntityContent entity world
@@ -1912,6 +1913,10 @@ module EntityDispatcherModule2 =
                 let current = entity.GetModelGeneric<'model> world
                 Some (this.UntruncateModel (current, incoming) :> obj :?> 'a)
             | _ -> None
+
+        /// The fallback model value.
+        abstract GetFallbackModel : Symbol * Entity * World -> 'model
+        default this.GetFallbackModel (_, _, world) = makeInitial world
 
         /// The entity's own MMCC definitions.
         abstract Definitions : 'model * Entity -> DefinitionContent list
@@ -2168,6 +2173,7 @@ module GroupDispatcherModule =
                 | null -> null :> obj :?> 'model
                 | modelObj ->
                     try let model = modelObj |> valueToSymbol |> symbolToValue
+                        property.DesignerType <- typeof<'model>
                         property.DesignerValue <- model
                         model
                     with _ ->
@@ -2201,8 +2207,8 @@ module GroupDispatcherModule =
                              "This may come about due to sending an incorrect signal type to the group or due to too significant a change in the signal type when reloading code.")
                         world
 
-        override this.TryGetInitialModel<'a> world =
-            makeInitial world :> obj :?> 'a |> Some
+        override this.TryGetFallbackModel<'a> (modelSymbol, group, world) =
+            this.GetFallbackModel (modelSymbol, group, world) :> obj :?> 'a |> Some
 
         override this.TrySynchronize (initializing, group, world) =
             let contentOld = World.getGroupContent group world
@@ -2224,6 +2230,10 @@ module GroupDispatcherModule =
                 let current = group.GetModelGeneric<'model> world
                 Some (this.UntruncateModel (current, incoming) :> obj :?> 'a)
             | _ -> None
+
+        /// The fallback model value.
+        abstract GetFallbackModel : Symbol * Group * World -> 'model
+        default this.GetFallbackModel (_, _, world) = makeInitial world
 
         /// The group's own MMCC definitions.
         abstract Definitions : 'model * Group -> DefinitionContent list
@@ -2346,6 +2356,7 @@ module ScreenDispatcherModule =
                 | null -> null :> obj :?> 'model
                 | modelObj ->
                     try let model = modelObj |> valueToSymbol |> symbolToValue
+                        property.DesignerType <- typeof<'model>
                         property.DesignerValue <- model
                         model
                     with _ ->
@@ -2379,8 +2390,8 @@ module ScreenDispatcherModule =
                              "This may come about due to sending an incorrect signal type to the screen or due to too significant a change in the signal type when reloading code.")
                         world
 
-        override this.TryGetInitialModel<'a> world =
-            makeInitial world :> obj :?> 'a |> Some
+        override this.TryGetFallbackModel<'a> (modelSymbol, screen, world) =
+            this.GetFallbackModel (modelSymbol, screen, world) :> obj :?> 'a |> Some
 
         override this.TrySynchronize (initializing, screen, world) =
             let contentOld = World.getScreenContent screen world
@@ -2402,6 +2413,10 @@ module ScreenDispatcherModule =
                 let current = screen.GetModelGeneric<'model> world
                 Some (this.UntruncateModel (current, incoming) :> obj :?> 'a)
             | _ -> None
+
+        /// The fallback model value.
+        abstract GetFallbackModel : Symbol * Screen * World -> 'model
+        default this.GetFallbackModel (_, _, world) = makeInitial world
 
         /// The screen's own MMCC definitions.
         abstract Definitions : 'model * Screen -> DefinitionContent list
@@ -2531,6 +2546,7 @@ module GameDispatcherModule =
                 | null -> null :> obj :?> 'model
                 | modelObj ->
                     try let model = modelObj |> valueToSymbol |> symbolToValue
+                        property.DesignerType <- typeof<'model>
                         property.DesignerValue <- model
                         model
                     with _ ->
@@ -2564,8 +2580,8 @@ module GameDispatcherModule =
                              "This may come about due to sending an incorrect signal type to the game or due to too significant a change in the signal type when reloading code.")
                         world
 
-        override this.TryGetInitialModel<'a> world =
-            makeInitial world :> obj :?> 'a |> Some
+        override this.TryGetFallbackModel<'a> (modelSymbol, game, world) =
+            this.GetFallbackModel (modelSymbol, game, world) :> obj :?> 'a |> Some
 
         override this.TrySynchronize (initializing, game, world) =
             synchronize initializing game world this |> snd
@@ -2581,6 +2597,10 @@ module GameDispatcherModule =
                 let current = game.GetModelGeneric<'model> world
                 Some (this.UntruncateModel (current, incoming) :> obj :?> 'a)
             | _ -> None
+
+        /// The fallback model value.
+        abstract GetFallbackModel : Symbol * Game * World -> 'model
+        default this.GetFallbackModel (_, _, world) = makeInitial world
 
         /// The game own MMCC definitions.
         abstract Definitions : 'model * Game -> DefinitionContent list
