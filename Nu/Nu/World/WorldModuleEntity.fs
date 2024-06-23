@@ -167,9 +167,9 @@ module WorldModuleEntity =
 
         static member internal publishTransformEvents (transformOld : Transform byref, transformNew : Transform byref, is2d, publishChangeEvents, entity : Entity, world) =
             if publishChangeEvents then
-                let positionChanged = v3NeqApprox transformNew.Position transformOld.Position
-                let rotationChanged = quatNeqApprox transformNew.Rotation transformOld.Rotation
-                let scaleChanged = v3NeqApprox transformNew.Scale transformOld.Scale
+                let positionChanged = v3Neq transformNew.Position transformOld.Position
+                let rotationChanged = quatNeq transformNew.Rotation transformOld.Rotation
+                let scaleChanged = v3NeqApprox transformNew.Scale transformOld.Scale 0.0001f // NOTE: just guessing at epsilon...
                 let offsetChanged = v3Neq transformNew.Offset transformOld.Offset
                 let sizeChanged = v3Neq transformNew.Size transformOld.Size
                 let elevationChanged = transformNew.Elevation <> transformOld.Elevation
@@ -646,14 +646,14 @@ module WorldModuleEntity =
             World.traverseEntityMounters World.propagateEntityAffineMatrix3 entity world
 
         /// Check that entity has entities to propagate its structure to.
-        /// TODO: expose this through Entity API.
+        /// TODO: P1: expose this through Entity API.
         static member hasPropagationTargets entity world =
             match world.WorldExtension.PropagationTargets.TryGetValue entity with
             | (true, targets) -> USet.notEmpty targets
             | (false, _) -> false
 
         /// Find all the entities to which an entity may propagate its structure.
-        /// TODO: expose this through Entity API.
+        /// TODO: P1: expose this through Entity API.
         static member getPropagationTargets entity world =
             match world.WorldExtension.PropagationTargets.TryGetValue entity with
             | (true, targets) -> seq targets
@@ -2674,6 +2674,13 @@ module WorldModuleEntity =
         static member internal viewEntityProperties entity world =
             let state = World.getEntityState entity world
             World.viewSimulantStateProperties state
+
+        static member notifyEntityModelChange entity world =
+            let entityState = World.getEntityState entity world
+            let world = entityState.Dispatcher.TrySynchronize (false, entity, world)
+            let entityState = World.getEntityState entity world // fresh entity state since synchronization could have invalidated existing copy
+            let publishChangeEvents = entityState.PublishChangeEvents
+            World.publishEntityChange Constants.Engine.ModelPropertyName entityState.Model.DesignerValue entityState.Model.DesignerValue publishChangeEvents entity world
 
     /// Initialize property getters.
     let private initGetters () =

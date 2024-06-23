@@ -332,6 +332,11 @@ module WorldModuleGroup =
             let state = World.getGroupState group world
             World.viewSimulantStateProperties state
 
+        static member notifyGroupModelChange group world =
+            let groupState = World.getGroupState group world
+            let world = groupState.Dispatcher.TrySynchronize (false, group, world)
+            World.publishGroupChange Constants.Engine.ModelPropertyName groupState.Model.DesignerValue groupState.Model.DesignerValue group world
+
     /// Initialize property getters.
     let private initGetters () =
         GroupGetters.Add ("Dispatcher", fun group world -> { PropertyType = typeof<GroupDispatcher>; PropertyValue = World.getGroupDispatcher group world })

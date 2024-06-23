@@ -124,12 +124,11 @@ module WorldGameModule =
         /// Check that a game dispatches in the same manner as the dispatcher with the given type.
         member this.Is<'a> world = this.Is (typeof<'a>, world)
 
-        /// Get a game's change event address.
-        member this.GetChangeEvent propertyName = Game.Handle.ChangeEvent propertyName
-
         /// Send a signal to a game.
-        member this.Signal<'message, 'command> (signal : Signal) world =
-            (this.GetDispatcher world).Signal (signal, this, world)
+        member this.Signal<'message, 'command> (signal : Signal) world = (this.GetDispatcher world).Signal (signal, this, world)
+
+        /// Notify the engine that the game's MMCC model has changed in some automatically undetectable way (such as being mutated directly by user code).
+        member this.NotifyModelChange world = World.notifyGameModelChange this world
 
     type World with
 

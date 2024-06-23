@@ -101,20 +101,20 @@ module WorldScreenModule =
             World.setScreenXtensionProperty propertyName property this world
 
         /// Check that a screen is in an idling state (not transitioning in nor out).
-        member this.Idling world =
+        member this.GetIdling world =
             match this.GetTransitionState world with
             | IdlingState _ -> true
             | _ -> false
 
         /// Check that a screen is selected.
-        member this.Selected world =
+        member this.GetSelected world =
             let gameState = World.getGameState Game.Handle world
             match gameState.SelectedScreenOpt with
             | Some screen when this.Name = screen.Name -> true
             | _ -> false
 
         /// Check that a screen exists in the world.
-        member this.Exists world = World.getScreenExists this world
+        member this.GetExists world = World.getScreenExists this world
 
         /// Check that a screen dispatches in the same manner as the dispatcher with the given type.
         member this.Is (dispatcherType, world) = Reflection.dispatchesAs dispatcherType (this.GetDispatcher world)
@@ -122,11 +122,11 @@ module WorldScreenModule =
         /// Check that a screen dispatches in the same manner as the dispatcher with the given type.
         member this.Is<'a> world = this.Is (typeof<'a>, world)
 
-        /// Get a screen's change event address.
-        member this.GetChangeEvent propertyName = this.ChangeEvent propertyName
-
         /// Send a signal to a screen.
         member this.Signal signal world = (this.GetDispatcher world).Signal (signal, this, world)
+
+        /// Notify the engine that a screen's MMCC model has changed in some automatically undetectable way (such as being mutated directly by user code).
+        member this.NotifyModelChange world = World.notifyScreenModelChange this world
 
     type World with
 

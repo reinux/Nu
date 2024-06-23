@@ -74,7 +74,7 @@ module WorldModuleScreen =
             World.publishPlus changeData changeEventAddress eventTrace screen false false world
 
         static member internal getScreenStateOpt screen world =
-             World.screenStateFinder screen world
+            World.screenStateFinder screen world
 
         static member internal getScreenState screen world =
             match World.getScreenStateOpt screen world with
@@ -356,6 +356,11 @@ module WorldModuleScreen =
         static member internal viewScreenProperties screen world =
             let state = World.getScreenState screen world
             World.viewSimulantStateProperties state
+
+        static member notifyScreenModelChange screen world =
+            let screenState = World.getScreenState screen world
+            let world = screenState.Dispatcher.TrySynchronize (false, screen, world)
+            World.publishScreenChange Constants.Engine.ModelPropertyName screenState.Model.DesignerValue screenState.Model.DesignerValue screen world
 
     /// Initialize property getters.
     let private initGetters () =

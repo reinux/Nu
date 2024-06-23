@@ -344,17 +344,17 @@ type BasicStaticSpriteEmitterFacet () =
         let particleSystem = entity.GetParticleSystem world
         let particleSystem = { particleSystem with Emitters = Map.add typeof<Particles.BasicStaticSpriteEmitter>.Name (emitter :> Particles.Emitter) particleSystem.Emitters }
         let world = entity.SetParticleSystem particleSystem world
-        let world = World.sense handlePositionChange (entity.GetChangeEvent (nameof entity.Position)) entity (nameof BasicStaticSpriteEmitterFacet) world
-        let world = World.sense handleRotationChange (entity.GetChangeEvent (nameof entity.Rotation)) entity (nameof BasicStaticSpriteEmitterFacet) world
-        let world = World.sense handleEmitterBlendChange (entity.GetChangeEvent (nameof entity.EmitterBlend)) entity (nameof BasicStaticSpriteEmitterFacet) world
-        let world = World.sense handleEmitterImageChange (entity.GetChangeEvent (nameof entity.EmitterImage)) entity (nameof BasicStaticSpriteEmitterFacet) world
-        let world = World.sense handleEmitterLifeTimeOptChange (entity.GetChangeEvent (nameof entity.EmitterLifeTimeOpt)) entity (nameof BasicStaticSpriteEmitterFacet) world
-        let world = World.sense handleParticleLifeTimeMaxOptChange (entity.GetChangeEvent (nameof entity.ParticleLifeTimeMaxOpt)) entity (nameof BasicStaticSpriteEmitterFacet) world
-        let world = World.sense handleParticleRateChange (entity.GetChangeEvent (nameof entity.ParticleRate)) entity (nameof BasicStaticSpriteEmitterFacet) world
-        let world = World.sense handleParticleMaxChange (entity.GetChangeEvent (nameof entity.ParticleMax)) entity (nameof BasicStaticSpriteEmitterFacet) world
-        let world = World.sense handleBasicParticleSeedChange (entity.GetChangeEvent (nameof entity.BasicParticleSeed)) entity (nameof BasicStaticSpriteEmitterFacet) world
-        let world = World.sense handleEmitterConstraintChange (entity.GetChangeEvent (nameof entity.EmitterConstraint)) entity (nameof BasicStaticSpriteEmitterFacet) world
-        let world = World.sense handleEmitterStyleChange (entity.GetChangeEvent (nameof entity.EmitterStyle)) entity (nameof BasicStaticSpriteEmitterFacet) world
+        let world = World.sense handlePositionChange entity.Position.ChangeEvent entity (nameof BasicStaticSpriteEmitterFacet) world
+        let world = World.sense handleRotationChange entity.Rotation.ChangeEvent entity (nameof BasicStaticSpriteEmitterFacet) world
+        let world = World.sense handleEmitterBlendChange entity.EmitterBlend.ChangeEvent entity (nameof BasicStaticSpriteEmitterFacet) world
+        let world = World.sense handleEmitterImageChange entity.EmitterImage.ChangeEvent entity (nameof BasicStaticSpriteEmitterFacet) world
+        let world = World.sense handleEmitterLifeTimeOptChange entity.EmitterLifeTimeOpt.ChangeEvent entity (nameof BasicStaticSpriteEmitterFacet) world
+        let world = World.sense handleParticleLifeTimeMaxOptChange entity.ParticleLifeTimeMaxOpt.ChangeEvent entity (nameof BasicStaticSpriteEmitterFacet) world
+        let world = World.sense handleParticleRateChange entity.ParticleRate.ChangeEvent entity (nameof BasicStaticSpriteEmitterFacet) world
+        let world = World.sense handleParticleMaxChange entity.ParticleMax.ChangeEvent entity (nameof BasicStaticSpriteEmitterFacet) world
+        let world = World.sense handleBasicParticleSeedChange entity.BasicParticleSeed.ChangeEvent entity (nameof BasicStaticSpriteEmitterFacet) world
+        let world = World.sense handleEmitterConstraintChange entity.EmitterConstraint.ChangeEvent entity (nameof BasicStaticSpriteEmitterFacet) world
+        let world = World.sense handleEmitterStyleChange entity.EmitterStyle.ChangeEvent entity (nameof BasicStaticSpriteEmitterFacet) world
         world
 
     override this.Unregister (entity, world) =
@@ -490,7 +490,8 @@ type BackdroppableFacet () =
     inherit Facet (false, false, false)
 
     static member Properties =
-        [define Entity.DisabledColor Constants.Gui.DisabledColor
+        [define Entity.Color Color.One
+         define Entity.DisabledColor Constants.Gui.DisabledColor
          define Entity.BackdropImageOpt None]
 
     override this.Render (_, entity, world) =
@@ -507,7 +508,7 @@ type BackdroppableFacet () =
                         { Transform = spriteTransform
                           InsetOpt = ValueNone
                           Image = spriteImage
-                          Color = if transform.Enabled then Color.One else entity.GetDisabledColor world
+                          Color = if transform.Enabled then entity.GetColor world else entity.GetDisabledColor world
                           Blend = Transparent
                           Emission = Color.Zero
                           Flip = FlipNone }}
@@ -1205,8 +1206,8 @@ type EffectFacet () =
     override this.Register (entity, world) =
         let effectStartTime = Option.defaultValue world.GameTime (entity.GetEffectStartTimeOpt world)
         let world = entity.SetEffectStartTimeOpt (Some effectStartTime) world
-        let world = World.sense handleEffectDescriptorChange (entity.GetChangeEvent (nameof entity.EffectDescriptor)) entity (nameof EffectFacet) world
-        let world = World.sense handleEffectsChange (entity.GetChangeEvent (nameof entity.EffectSymbolOpt)) entity (nameof EffectFacet) world
+        let world = World.sense handleEffectDescriptorChange entity.EffectDescriptor.ChangeEvent entity (nameof EffectFacet) world
+        let world = World.sense handleEffectsChange entity.EffectSymbolOpt.ChangeEvent entity (nameof EffectFacet) world
         let world = World.sense handleAssetsReload Nu.Game.Handle.AssetsReloadEvent entity (nameof EffectFacet) world
         let world = World.sense handlePreUpdate entity.Group.PreUpdateEvent entity (nameof EffectFacet) world
         let world = World.sense handlePostUpdate entity.Group.PostUpdateEvent entity (nameof EffectFacet) world
@@ -1968,7 +1969,10 @@ type LayoutFacet () =
                         gridLayout perimeter margin dims flowDirectionOpt resizeChildren children world
                     | Manual -> world
                 world
-        else world
+        else
+            match entity.GetLayout world with
+            | Manual -> world
+            | _ -> Log.warnOnce "Layouts are not supported for uncentered entities."; world
 
     static let handleLayout evt world =
         let entity = evt.Subscriber : Entity
@@ -2098,7 +2102,7 @@ type LightProbe3dFacet () =
          nonPersistent Entity.ProbeStale false]
 
     override this.Register (entity, world) =
-        let world = World.sense handleProbeStaleChange (entity.GetChangeEvent (nameof entity.ProbeStale)) entity (nameof LightProbe3dFacet) world
+        let world = World.sense handleProbeStaleChange entity.ProbeStale.ChangeEvent entity (nameof LightProbe3dFacet) world
         entity.SetProbeStale true world
 
     override this.Render (renderPass, entity, world) =
@@ -2466,19 +2470,19 @@ type BasicStaticBillboardEmitterFacet () =
         let particleSystem = entity.GetParticleSystem world
         let particleSystem = { particleSystem with Emitters = Map.add typeof<Particles.BasicStaticBillboardEmitter>.Name (emitter :> Particles.Emitter) particleSystem.Emitters }
         let world = entity.SetParticleSystem particleSystem world
-        let world = World.sense handlePositionChange (entity.GetChangeEvent (nameof entity.Position)) entity (nameof BasicStaticBillboardEmitterFacet) world
-        let world = World.sense handleRotationChange (entity.GetChangeEvent (nameof entity.Rotation)) entity (nameof BasicStaticBillboardEmitterFacet) world
-        let world = World.sense handleEmitterMaterialPropertiesChange (entity.GetChangeEvent (nameof entity.EmitterMaterialProperties)) entity (nameof BasicStaticBillboardEmitterFacet) world
-        let world = World.sense handleEmitterMaterialChange (entity.GetChangeEvent (nameof entity.EmitterMaterial)) entity (nameof BasicStaticBillboardEmitterFacet) world
-        let world = World.sense handleEmitterShadowOffsetChange (entity.GetChangeEvent (nameof entity.EmitterShadowOffset)) entity (nameof BasicStaticBillboardEmitterFacet) world
-        let world = World.sense handleEmitterRenderTypeChange (entity.GetChangeEvent (nameof entity.EmitterRenderType)) entity (nameof BasicStaticBillboardEmitterFacet) world
-        let world = World.sense handleEmitterLifeTimeOptChange (entity.GetChangeEvent (nameof entity.EmitterLifeTimeOpt)) entity (nameof BasicStaticBillboardEmitterFacet) world
-        let world = World.sense handleParticleLifeTimeMaxOptChange (entity.GetChangeEvent (nameof entity.ParticleLifeTimeMaxOpt)) entity (nameof BasicStaticBillboardEmitterFacet) world
-        let world = World.sense handleParticleRateChange (entity.GetChangeEvent (nameof entity.ParticleRate)) entity (nameof BasicStaticBillboardEmitterFacet) world
-        let world = World.sense handleParticleMaxChange (entity.GetChangeEvent (nameof entity.ParticleMax)) entity (nameof BasicStaticBillboardEmitterFacet) world
-        let world = World.sense handleBasicParticleSeedChange (entity.GetChangeEvent (nameof entity.BasicParticleSeed)) entity (nameof BasicStaticBillboardEmitterFacet) world
-        let world = World.sense handleEmitterConstraintChange (entity.GetChangeEvent (nameof entity.EmitterConstraint)) entity (nameof BasicStaticBillboardEmitterFacet) world
-        let world = World.sense handleEmitterStyleChange (entity.GetChangeEvent (nameof entity.EmitterStyle)) entity (nameof BasicStaticBillboardEmitterFacet) world
+        let world = World.sense handlePositionChange entity.Position.ChangeEvent entity (nameof BasicStaticBillboardEmitterFacet) world
+        let world = World.sense handleRotationChange entity.Rotation.ChangeEvent entity (nameof BasicStaticBillboardEmitterFacet) world
+        let world = World.sense handleEmitterMaterialPropertiesChange entity.EmitterMaterialProperties.ChangeEvent entity (nameof BasicStaticBillboardEmitterFacet) world
+        let world = World.sense handleEmitterMaterialChange entity.EmitterMaterial.ChangeEvent entity (nameof BasicStaticBillboardEmitterFacet) world
+        let world = World.sense handleEmitterShadowOffsetChange entity.EmitterShadowOffset.ChangeEvent entity (nameof BasicStaticBillboardEmitterFacet) world
+        let world = World.sense handleEmitterRenderTypeChange entity.EmitterRenderType.ChangeEvent entity (nameof BasicStaticBillboardEmitterFacet) world
+        let world = World.sense handleEmitterLifeTimeOptChange entity.EmitterLifeTimeOpt.ChangeEvent entity (nameof BasicStaticBillboardEmitterFacet) world
+        let world = World.sense handleParticleLifeTimeMaxOptChange entity.ParticleLifeTimeMaxOpt.ChangeEvent entity (nameof BasicStaticBillboardEmitterFacet) world
+        let world = World.sense handleParticleRateChange entity.ParticleRate.ChangeEvent entity (nameof BasicStaticBillboardEmitterFacet) world
+        let world = World.sense handleParticleMaxChange entity.ParticleMax.ChangeEvent entity (nameof BasicStaticBillboardEmitterFacet) world
+        let world = World.sense handleBasicParticleSeedChange entity.BasicParticleSeed.ChangeEvent entity (nameof BasicStaticBillboardEmitterFacet) world
+        let world = World.sense handleEmitterConstraintChange entity.EmitterConstraint.ChangeEvent entity (nameof BasicStaticBillboardEmitterFacet) world
+        let world = World.sense handleEmitterStyleChange entity.EmitterStyle.ChangeEvent entity (nameof BasicStaticBillboardEmitterFacet) world
         world
 
     override this.Unregister (entity, world) =
@@ -3115,7 +3119,7 @@ type FollowerFacet () =
         if following then
             let targetOpt = entity.GetFollowTargetOpt world
             match targetOpt with
-            | Some target when target.Exists world ->
+            | Some target when target.GetExists world ->
                 let moveSpeed = entity.GetFollowMoveSpeed world * (let gd = world.GameDelta in gd.Seconds)
                 let turnSpeed = entity.GetFollowTurnSpeed world * (let gd = world.GameDelta in gd.Seconds)
                 let distanceMinOpt = entity.GetFollowDistanceMinOpt world
