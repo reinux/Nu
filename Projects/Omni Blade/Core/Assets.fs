@@ -10,13 +10,6 @@ open Nu
 module Assets =
 
     [<RequireQualifiedAccess>]
-    module Global =
-
-        let SaveFilePath1 = "Omni Blade Slot 1.sav"
-        let SaveFilePath2 = "Omni Blade Slot 2.sav"
-        let SaveFilePath3 = "Omni Blade Slot 3.sav"
-
-    [<RequireQualifiedAccess>]
     module Data =
 
         let WeaponDataFilePath = "Assets/Data/WeaponData.csv"
@@ -160,7 +153,7 @@ module Assets =
         let CycloneBlurAnimationSheet = asset<Image> PackageName "CycloneBlur"
         let SpikeAnimationSheet = asset<Image> PackageName "Spike"
         let CriticalAnimationSheet = asset<Image> PackageName "Critical"
-        let HeavyCriticalAnimationSheet = asset<Image> PackageName "HeavyCritical"
+        let PowerCriticalAnimationSheet = asset<Image> PackageName "PowerCritical"
         let CriticalSlashAnimationSheet = asset<Image> PackageName "CriticalSlash"
         let PoisonCutAnimationSheet = asset<Image> PackageName "PoisonCut"
         let PowerCutAnimationSheet = asset<Image> PackageName "PowerCut"
@@ -221,3 +214,10 @@ module Assets =
         let ReadySound = asset<Sound> PackageName "Ready"
         let BuffSound = asset<Sound> PackageName "Buff"
         let DebuffSound = asset<Sound> PackageName "Debuff"
+
+    [<RequireQualifiedAccess>]
+    module User =
+
+        let SaveFilePath1 = "Omni Blade Slot 1.sav"
+        let SaveFilePath2 = "Omni Blade Slot 2.sav"
+        let SaveFilePath3 = "Omni Blade Slot 3.sav"
