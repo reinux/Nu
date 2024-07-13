@@ -66,7 +66,7 @@ type CreditsDispatcher () =
 
         | Scroll ->
             let credits = { credits with ScrollPosition = credits.ScrollPosition + v3 0.0f (1.0f / 3.0f) 0.0f }
-            if credits.ScrollPosition.Y >= 620.0f
+            if credits.ScrollPosition.Y >= 625.0f
             then withSignal (signal StartQuitting) credits
             else just credits
 
@@ -123,6 +123,7 @@ type CreditsDispatcher () =
                  Content.text "OwlTheoryMusic" [Entity.Text == "Owl Theory Music"]
                  Content.text "PdkMusic" [Entity.Text == "Pdk Music"]
                  Content.text "PeriTune" [Entity.Text == "Peri Tune"]
+                 Content.text "PjotrKolster" [Entity.Text == "Pjotr Kolster"]
                  Content.text "Suat" [Entity.Text == "Suat"]
                  Content.text "ThomasBrunet" [Entity.Text == "Thomas Brunet"]
                  Content.text "Space4" []
@@ -150,5 +151,4 @@ type CreditsDispatcher () =
                  Content.text "SeparatorB8" []
                  Content.text "SeparatorB9" []
                  Content.text "SeparatorB10" []
-                 Content.text "SeparatorB11" []
                  Content.text "ThankYouForPlaying." [Entity.Text == "Thank you for playing."]]]]

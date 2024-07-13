@@ -669,7 +669,10 @@ module Battle =
                         match source.AutoBattleOpt with
                         | Some autoBattle -> Some { autoBattle with AutoTarget = targetIndex }
                         | None -> None
-                    Character.setAutoBattleOpt autoBattleOpt source
+                    let source = Character.setAutoBattleOpt autoBattleOpt source
+                    if source.PerimeterOriginal.Bottom.X < target.PerimeterOriginal.Bottom.X then Character.face Rightward source
+                    elif source.PerimeterOriginal.Bottom.X > target.PerimeterOriginal.Bottom.X then Character.face Leftward source
+                    else source
                 else source)
                 sourceIndex
                 battle
@@ -728,7 +731,8 @@ module Battle =
 
     let rec private evalAttackAffectType affectType (source : Character) (target : Character) (observer : Character) battle =
         match affectType with
-        | Physical | Touching -> source.ArchetypeType.AttackTouchingArchetype
+        | Physical -> true
+        | Touching -> source.ArchetypeType.AttackTouchingArchetype
         | Magical | Affinity _ | Item | OrbEmptied | OrbFilled | Cancelled | Uncancelled | Buffed | Debuffed -> false
         | Wounded -> target.Wounded
         | Random chance -> Gen.randomf < chance
@@ -1394,7 +1398,7 @@ module Battle =
                                              PlaySound (45L, Constants.Audio.SoundVolumeDefault, Assets.Battle.ExplosionSound)]
                                         let displayScatterBolts =
                                             [for i in 0L .. 15L .. 45L do
-                                                for _ in 0L .. dec 2L do DisplayScatterBolt i |> signal]
+                                                for j in 0L .. dec 2L do DisplayScatterBolt (i + j * 3L) |> signal]
                                         let battle = animateCharacter Cast2Animation sourceIndex battle
                                         withSignals (playThunders @ displayScatterBolts) battle
                                     | Inferno ->
@@ -1787,11 +1791,7 @@ module Battle =
                             match enemy.AutoBattleOpt with
                             | Some autoBattle when autoBattle.AutoTarget = targetIndex ->
                                 match Gen.randomItemOpt (Map.toList (Map.remove targetIndex (getAlliesHealthy battle))) with
-                                | Some (allyIndex, ally) ->
-                                    let battle = retargetCharacter enemy.CharacterIndex allyIndex battle
-                                    if enemy.PerimeterOriginal.Bottom.X < ally.PerimeterOriginal.Bottom.X then faceCharacter Rightward enemy.CharacterIndex battle
-                                    elif enemy.PerimeterOriginal.Bottom.X > ally.PerimeterOriginal.Bottom.X then faceCharacter Leftward enemy.CharacterIndex battle
-                                    else battle
+                                | Some (allyIndex, _) -> retargetCharacter enemy.CharacterIndex allyIndex battle
                                 | None -> battle
                             | Some _ | None -> battle)
                             battle

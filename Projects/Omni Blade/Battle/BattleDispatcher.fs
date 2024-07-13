@@ -276,12 +276,12 @@ type BattleDispatcher () =
 
         | DisplayBuff (delay, statusType, targetIndex) ->
             match Battle.tryGetCharacter targetIndex battle with
-            | Some target -> displayEffect delay (v3 48.0f 48.0f 0.0f) (Bottom target.Perimeter.Bottom) Over (EffectDescriptors.buff statusType) screen world |> just
+            | Some target -> displayEffect delay (v3 48.0f 44.0f 0.0f) (Bottom target.Perimeter.Bottom) Over (EffectDescriptors.buff statusType) screen world |> just
             | None -> just world
 
         | DisplayDebuff (delay, statusType, targetIndex) ->
             match Battle.tryGetCharacter targetIndex battle with
-            | Some target -> displayEffect delay (v3 48.0f 48.0f 0.0f) (Bottom target.Perimeter.Bottom) Over (EffectDescriptors.debuff statusType) screen world |> just
+            | Some target -> displayEffect delay (v3 48.0f 44.0f 0.0f) (Bottom target.Perimeter.Bottom) Over (EffectDescriptors.debuff statusType) screen world |> just
             | None -> just world
 
         | DisplayImpactSplash (delay, targetIndex) ->
@@ -323,7 +323,8 @@ type BattleDispatcher () =
                     let (sourcePosition, targetPosition) =
                         match source.Stature with
                         | SmallStature | NormalStature -> (source.Perimeter.CenterOffset, target.Perimeter.CenterOffset)
-                        | LargeStature | BossStature -> (source.Perimeter.CenterOffset3, target.Perimeter.CenterOffset3)
+                        | LargeStature -> (source.Perimeter.CenterOffset5, target.Perimeter.CenterOffset)
+                        | BossStature -> (source.Perimeter.CenterOffset3, target.Perimeter.CenterOffset3)
                     let descriptor = EffectDescriptors.flame sourcePosition targetPosition
                     let world = displayEffect delay (v3 144.0f 144.0f 0.0f) (Bottom source.Perimeter.Bottom) Over descriptor screen world
                     just world
@@ -540,7 +541,7 @@ type BattleDispatcher () =
                                  Entity.CancelEvent => TechItemCancel index]
 
                          | AimReticles (actionStr, aimType) ->
-                            let infoText = actionStr.Words
+                            let infoText = actionStr.Spaced
                             Content.text "Info"
                                 [Entity.PositionLocal := ally.Perimeter.Center + v3 -270.0f 15.0f 0.0f
                                  Entity.Size == v3 540.0f 81.0f 0.0f
