@@ -68,13 +68,13 @@ and SnapshotType =
     | RenameGroup
     | OpenGroup
     | CloseGroup
-    | ChangeProperty of string
+    | ChangeProperty of int64 option * string
     | Evaluate of string
     | RestorePoint
     | RencenterInProbeBounds
     | ResetProbeBounds
     | SynchronizeNav
-    | SetEditMode
+    | SetEditMode of int
     | ReloadCode
     | Advance
     | Halt
@@ -103,13 +103,13 @@ and SnapshotType =
         | RenameGroup -> (scstringMemo this).Spaced
         | OpenGroup -> (scstringMemo this).Spaced
         | CloseGroup -> (scstringMemo this).Spaced
-        | ChangeProperty propertyName -> "Change Property " + propertyName
+        | ChangeProperty (_, propertyName) -> "Change Property " + propertyName
         | Evaluate _ -> "Evaluate F# Expression"
         | RestorePoint -> (scstringMemo this).Spaced
         | RencenterInProbeBounds -> (scstringMemo this).Spaced
         | ResetProbeBounds -> (scstringMemo this).Spaced
         | SynchronizeNav -> (scstringMemo this).Spaced
-        | SetEditMode -> (scstringMemo this).Spaced
+        | SetEditMode i -> (scstringMemo this).Spaced + " (" + string (inc i) + " of 2)"
         | ReloadCode -> (scstringMemo this).Spaced
         | Advance -> (scstringMemo this).Spaced
         | Halt -> (scstringMemo this).Spaced
@@ -358,6 +358,13 @@ and [<CustomEquality; CustomComparison>] SortPriority =
             match that with
             | :? SortPriority as that -> (this :> SortPriority IComparable).CompareTo that
             | _ -> failwithumf ()
+
+/// Specified the requested song, if any, or whether to ignore song request functionality altogether.
+and RequestedSong =
+    | Request of SongDescriptor
+    | RequestFadeOut of GameTime
+    | RequestNone
+    | RequestIgnore
 
 /// Specifies the desired screen, if any, or whether to ignore screen desire functionality altogether.
 and DesiredScreen =
@@ -955,6 +962,7 @@ and [<ReferenceEquality; CLIMutable>] ScreenState =
       TransitionState : TransitionState
       Incoming : Transition
       Outgoing : Transition
+      RequestedSong : RequestedSong
       SlideOpt : Slide option
       Nav3d : Nav3d
       Protected : bool
@@ -1004,6 +1012,7 @@ and [<ReferenceEquality; CLIMutable>] ScreenState =
           TransitionState = IdlingState time
           Incoming = Transition.make Incoming
           Outgoing = Transition.make Outgoing
+          RequestedSong = RequestIgnore
           SlideOpt = None
           Nav3d = Nav3d.make ()
           Protected = false

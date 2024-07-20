@@ -116,7 +116,6 @@ module Gaia =
 
     (* Metrics States *)
 
-    let mutable private GcTimingPrevious = 0.0
     let private TimingCapacity = 200
     let private TimingsArray = Array.zeroCreate<single> TimingCapacity
     let private GcTimings = Queue (Array.zeroCreate<single> TimingCapacity)
@@ -463,16 +462,19 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
         | Left (error, world) -> MessageBoxOpt <- Some error; world
 
     let private setPropertyValueIgnoreError (value : obj) propertyDescriptor simulant world =
-        let world = snapshot (ChangeProperty propertyDescriptor.PropertyName) world
+        let world = snapshot (ChangeProperty (None, propertyDescriptor.PropertyName)) world
         match SimulantPropertyDescriptor.trySetValue value propertyDescriptor simulant world with
         | Right world -> world
         | Left (_, world) -> world
 
     let private setPropertyValue (value : obj) propertyDescriptor simulant world =
+        let skipSnapshot =
+            match Pasts with
+            | (ChangeProperty (mouseLeftIdOpt, _), _) :: _ -> mouseLeftIdOpt = Some ImGui.MouseLeftId
+            | _ -> false
         let world =
-            if  not (ImGui.IsMouseDragging ImGuiMouseButton.Left) ||
-                not (ImGui.IsMouseDraggingContinued ImGuiMouseButton.Left) then
-                snapshot (ChangeProperty propertyDescriptor.PropertyName) world
+            if not skipSnapshot
+            then snapshot (ChangeProperty (Some ImGui.MouseLeftId, propertyDescriptor.PropertyName)) world
             else world
         setPropertyValueWithoutUndo value propertyDescriptor simulant world
 
@@ -692,6 +694,24 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
         if File.Exists assemblyFilePath
         then Assembly.LoadFrom assemblyFilePath
         else null
+
+    // NOTE: this function isn't used, but it is kept around as it's a good tool to surface memory leaks deep in large libs like FSI.
+    let private scanAndNullifyFields (root : obj) (targetType : Type) =
+        let bindingFlags = BindingFlags.NonPublic ||| BindingFlags.Public ||| BindingFlags.Instance
+        let visited = HashSet ()
+        let rec scan (obj : obj) =
+            if notNull obj then
+                let objType = obj.GetType ()
+                if not objType.IsValueType && (try not (visited.Contains(obj)) with _ -> false) then
+                    visited.Add obj |> ignore
+                    let fields = objType.GetFields bindingFlags
+                    for field in fields do
+                        if not field.FieldType.IsValueType && targetType = field.FieldType 
+                        then field.SetValue (obj, null)
+                        else
+                            let fieldValue = field.GetValue obj
+                            scan fieldValue
+        scan root
 
     (* Nu Event Handling Functions *)
 
@@ -1099,6 +1119,8 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                     Log.trace ("Unable to find fsproj file in '" + workingDirPath + "'.")
                     world
                 | fsprojFilePaths ->
+
+                    // generate code reload fsx file string
                     let fsprojFilePath = fsprojFilePaths.[0]
                     Log.info ("Inspecting code for F# project '" + fsprojFilePath + "'...")
                     let fsprojFileLines = File.ReadAllLines fsprojFilePath
@@ -1142,12 +1164,33 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                         String.Join ("\n", Array.map (fun (filePath : string) -> "#r \"../../../" + filePath + "\"") fsprojDllFilePaths) + "\n" +
                         String.Join ("\n", fsprojProjectLines) + "\n" +
                         String.Join ("\n", Array.map (fun (filePath : string) -> "#load \"../../../" + filePath + "\"") fsprojFsFilePaths)
-                    Log.info ("Compiling code via generated F# script:\n" + fsxFileString)
+
+                    // dispose of existing fsi eval session
                     (FsiSession :> IDisposable).Dispose ()
+
+                    // HACK: fix a memory leak caused by FsiEvaluationSession hanging around in a lambda its also roots.
+                    let mutable fsiDynamicCompiler = FsiSession.GetType().GetField("fsiDynamicCompiler", BindingFlags.NonPublic ||| BindingFlags.Instance).GetValue(FsiSession)
+                    fsiDynamicCompiler.GetType().GetField("resolveAssemblyRef", BindingFlags.NonPublic ||| BindingFlags.Instance).SetValue(fsiDynamicCompiler, null)
+                    fsiDynamicCompiler <- null
+                    
+                    // HACK: same as above, but for another place.
+                    let mutable tcConfigB = FsiSession.GetType().GetField("tcConfigB", BindingFlags.NonPublic ||| BindingFlags.Instance).GetValue(FsiSession)
+                    tcConfigB.GetType().GetField("tryGetMetadataSnapshot@", BindingFlags.NonPublic ||| BindingFlags.Instance).SetValue(tcConfigB, null)
+                    tcConfigB <- null
+
+                    // HACK: manually clear fsi eval session since it has such a massive object footprint
+                    FsiSession <- Unchecked.defaultof<_>
+                    GC.Collect ()
+
+                    // notify user fsi session has been reset
                     InteractiveOutputStr <- "(fsi session reset)"
+
+                    // create a new session for code reload
+                    Log.info ("Compiling code via generated F# script:\n" + fsxFileString)
                     FsiSession <- Shell.FsiEvaluationSession.Create (FsiConfig, FsiArgs, FsiInStream, FsiOutStream, FsiErrorStream)
                     let world =
-                        try FsiSession.EvalInteraction fsxFileString
+                        match FsiSession.EvalInteractionNonThrowing fsxFileString with
+                        | (Choice1Of2 _, _) ->
                             let errorStr = string FsiErrorStream
                             if errorStr.Length > 0
                             then Log.info ("Code compiled with the following warnings (these may disable debugging of reloaded code):\n" + errorStr)
@@ -1157,7 +1200,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                             let world = World.updateLateBindings FsiSession.DynamicAssemblies world // replace references to old types
                             Log.info "Code updated."
                             world
-                        with _ ->
+                        | (Choice2Of2 _, _) ->
                             let errorStr = string FsiErrorStream
                             Log.info ("Failed to compile code due to (see full output in the console):\n" + errorStr)
                             World.switch worldOld
@@ -1451,16 +1494,18 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
 
     let private updateEyeTravel world =
         if canEditWithKeyboard world then
+            let delta = world.DateDelta
+            let seconds = single delta.TotalSeconds
             let position = World.getEye3dCenter world
             let rotation = World.getEye3dRotation world
             let moveSpeed =
-                if ImGui.IsEnterDown () && ImGui.IsShiftDown () then 5.0f
-                elif ImGui.IsEnterDown () then 0.5f
-                elif ImGui.IsShiftDown () then 0.02f
-                else 0.12f
+                if ImGui.IsEnterDown () && ImGui.IsShiftDown () then 300.0f * seconds
+                elif ImGui.IsEnterDown () then 30.0f * seconds
+                elif ImGui.IsShiftDown () then 2.1f * seconds
+                else 7.2f * seconds
             let turnSpeed =
-                if ImGui.IsShiftDown () && ImGui.IsEnterUp () then 0.025f
-                else 0.05f
+                if ImGui.IsShiftDown () && ImGui.IsEnterUp () then 1.5f * seconds
+                else 3.0f * seconds
             if ImGui.IsKeyDown ImGuiKey.W && ImGui.IsCtrlUp () then
                 DesiredEye3dCenter <- position + v3Forward.Transform rotation * moveSpeed
             if ImGui.IsKeyDown ImGuiKey.S && ImGui.IsCtrlUp () then
@@ -1542,17 +1587,17 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
         if not filtering then
             if ExpandEntityHierarchy then ImGui.SetNextItemOpen true
             if CollapseEntityHierarchy then ImGui.SetNextItemOpen false
-        match SelectedEntityOpt with
-        | Some selectedEntity when selectedEntity.GetExists world && ShowSelectedEntity ->
-            let relation = relate entity selectedEntity
-            if  Array.notExists (fun t -> t = Parent || t = Current) relation.Links &&
-                relation.Links.Length > 0 then
-                ImGui.SetNextItemOpen true
-        | Some _ | None -> ()
+        if ShowSelectedEntity then
+            match SelectedEntityOpt with
+            | Some selectedEntity when selectedEntity.GetExists world ->
+                let relation = relate entity selectedEntity
+                if  Array.notExists (fun t -> t = Parent || t = Current) relation.Links &&
+                    relation.Links.Length > 0 then
+                    ImGui.SetNextItemOpen true
+            | Some _ | None -> ()
         let expanded = ImGui.TreeNodeEx (entity.Name, treeNodeFlags)
         if ShowSelectedEntity && Some entity = SelectedEntityOpt then
             ImGui.SetScrollHereY 0.5f
-        ShowSelectedEntity <- false
         if ImGui.IsKeyPressed ImGuiKey.Space && ImGui.IsItemFocused () && ImGui.IsWindowFocused () then
             selectEntityOpt (Some entity) world
         if ImGui.IsMouseReleased ImGuiMouseButton.Left && ImGui.IsItemHovered () then
@@ -3003,7 +3048,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                              &lightProbeBounds)
                     match manipulationResult with
                     | ImGuiEditActive started ->
-                        let world = if started then snapshot (ChangeProperty (nameof Entity.ProbeBounds)) world else world
+                        let world = if started then snapshot (ChangeProperty (None, nameof Entity.ProbeBounds)) world else world
                         entity.SetProbeBounds lightProbeBounds world
                     | ImGuiEditInactive -> world
                 | Some _ | None -> world
@@ -3250,7 +3295,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                             let world = if ImGui.MenuItem ("Thaw Entities", "Ctrl+Shift+T") then freezeEntities world else world
                             let world = if ImGui.MenuItem ("Freeze Entities", "Ctrl+Shift+F") then freezeEntities world else world
                             let world = if ImGui.MenuItem ("Rebuild Navigation", "Ctrl+Shift+N") then synchronizeNav world else world
-                            let world = if ImGui.MenuItem ("Re-render Light Maps", "Ctrl+Shift+L") then rerenderLightMaps world else world
+                            let world = if ImGui.MenuItem ("Rerender Light Maps", "Ctrl+Shift+L") then rerenderLightMaps world else world
                             ImGui.EndMenu ()
                             world
                         else world
@@ -3396,10 +3441,10 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                                 let world =
                                     if ImGui.Selectable (editModeName, strEq editModeName ProjectEditMode) then
                                         ProjectEditMode <- editModeName
-                                        let world = snapshot SetEditMode world // snapshot before mode change
+                                        let world = snapshot (SetEditMode 0) world // snapshot before mode change
                                         selectEntityOpt None world
                                         let world = editModeFn world
-                                        let world = snapshot SetEditMode world // snapshot before after change
+                                        let world = snapshot (SetEditMode 1) world // snapshot before after change
                                         world
                                     else world
                                 if editModeName = ProjectEditMode then ImGui.SetItemDefaultFocus ()
@@ -3430,7 +3475,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                 ImGui.SameLine ()
                 let world = if ImGui.Button "Relight" then rerenderLightMaps world else world
                 if ImGui.IsItemHovered ImGuiHoveredFlags.DelayNormal && ImGui.BeginTooltip () then
-                    ImGui.Text "Re-render all light maps. (Ctrl+Shift+L)"
+                    ImGui.Text "Rerender all light maps. (Ctrl+Shift+L)"
                     ImGui.EndTooltip ()
                 ImGui.SameLine ()
                 ImGui.Text "|"
@@ -3443,7 +3488,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                     ImGui.Text "Toggle full screen view (F11 to toggle)."
                     ImGui.EndTooltip ()
                 ImGui.SameLine ()
-                ImGui.Text "Capture Mode"
+                ImGui.Text "Capture Mode (F12)"
                 ImGui.SameLine ()
                 ImGui.Checkbox ("##captureMode", &CaptureMode) |> ignore<bool>
                 if CaptureMode then FullScreen <- true
@@ -3577,6 +3622,9 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                 Array.sortBy fst |>
                 Array.map snd |>
                 Array.fold (fun world entity -> imGuiEntityHierarchy entity world) world
+
+            // finish entity showing
+            ShowSelectedEntity <- false
 
             // fin
             ImGui.End ()
@@ -3800,55 +3848,54 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
             ImGui.Text (string (OpenGL.Hl.GetDrawInstanceCount ()))
 
             // frame timing plot
-            if world.Advancing then
-                GcTimings.Enqueue (single world.Timers.GcFrameTime.TotalMilliseconds)
-                GcTimings.Dequeue () |> ignore<single>
-                MiscTimings.Enqueue
-                    (single
-                        (world.Timers.InputTimer.Elapsed.TotalMilliseconds +
-                         world.Timers.AudioTimer.Elapsed.TotalMilliseconds))
-                MiscTimings.Dequeue () |> ignore<single>
-                PhysicsTimings.Enqueue (single world.Timers.PhysicsTimer.Elapsed.TotalMilliseconds + Seq.last MiscTimings)
-                PhysicsTimings.Dequeue () |> ignore<single>
-                UpdateTimings.Enqueue
-                    (single
-                        (world.Timers.PreProcessTimer.Elapsed.TotalMilliseconds +
-                         world.Timers.PreUpdateTimer.Elapsed.TotalMilliseconds +
-                         world.Timers.UpdateTimer.Elapsed.TotalMilliseconds +
-                         world.Timers.PostUpdateTimer.Elapsed.TotalMilliseconds +
-                         world.Timers.PerProcessTimer.Elapsed.TotalMilliseconds +
-                         world.Timers.TaskletsTimer.Elapsed.TotalMilliseconds +
-                         world.Timers.DestructionTimer.Elapsed.TotalMilliseconds +
-                         world.Timers.PostProcessTimer.Elapsed.TotalMilliseconds) + Seq.last PhysicsTimings)
-                UpdateTimings.Dequeue () |> ignore<single>
-                RenderMessagesTimings.Enqueue (single world.Timers.RenderMessagesTimer.Elapsed.TotalMilliseconds + Seq.last UpdateTimings)
-                RenderMessagesTimings.Dequeue () |> ignore<single>
-                ImGuiTimings.Enqueue (single world.Timers.ImGuiTimer.Elapsed.TotalMilliseconds + Seq.last RenderMessagesTimings)
-                ImGuiTimings.Dequeue () |> ignore<single>
-                MainThreadTimings.Enqueue (single world.Timers.MainThreadTime.TotalMilliseconds)
-                MainThreadTimings.Dequeue () |> ignore<single>
-                FrameTimings.Enqueue (single world.Timers.FrameTimer.Elapsed.TotalMilliseconds)
-                FrameTimings.Dequeue () |> ignore<single>
+            GcTimings.Enqueue (single world.Timers.GcFrameTime.TotalMilliseconds)
+            GcTimings.Dequeue () |> ignore<single>
+            MiscTimings.Enqueue
+                (single
+                    (world.Timers.InputTimer.Elapsed.TotalMilliseconds +
+                     world.Timers.AudioTimer.Elapsed.TotalMilliseconds))
+            MiscTimings.Dequeue () |> ignore<single>
+            PhysicsTimings.Enqueue (single world.Timers.PhysicsTimer.Elapsed.TotalMilliseconds + Seq.last MiscTimings)
+            PhysicsTimings.Dequeue () |> ignore<single>
+            UpdateTimings.Enqueue
+                (single
+                    (world.Timers.PreProcessTimer.Elapsed.TotalMilliseconds +
+                     world.Timers.PreUpdateTimer.Elapsed.TotalMilliseconds +
+                     world.Timers.UpdateTimer.Elapsed.TotalMilliseconds +
+                     world.Timers.PostUpdateTimer.Elapsed.TotalMilliseconds +
+                     world.Timers.PerProcessTimer.Elapsed.TotalMilliseconds +
+                     world.Timers.TaskletsTimer.Elapsed.TotalMilliseconds +
+                     world.Timers.DestructionTimer.Elapsed.TotalMilliseconds +
+                     world.Timers.PostProcessTimer.Elapsed.TotalMilliseconds) + Seq.last PhysicsTimings)
+            UpdateTimings.Dequeue () |> ignore<single>
+            RenderMessagesTimings.Enqueue (single world.Timers.RenderMessagesTimer.Elapsed.TotalMilliseconds + Seq.last UpdateTimings)
+            RenderMessagesTimings.Dequeue () |> ignore<single>
+            ImGuiTimings.Enqueue (single world.Timers.ImGuiTimer.Elapsed.TotalMilliseconds + Seq.last RenderMessagesTimings)
+            ImGuiTimings.Dequeue () |> ignore<single>
+            MainThreadTimings.Enqueue (single world.Timers.MainThreadTime.TotalMilliseconds)
+            MainThreadTimings.Dequeue () |> ignore<single>
+            FrameTimings.Enqueue (single world.Timers.FrameTimer.Elapsed.TotalMilliseconds)
+            FrameTimings.Dequeue () |> ignore<single>
             if ImPlot.BeginPlot ("FrameTimings", v2 -1.0f -1.0f, ImPlotFlags.NoTitle ||| ImPlotFlags.NoInputs) then
                 ImPlot.SetupLegend (ImPlotLocation.West, ImPlotLegendFlags.Outside)
                 ImPlot.SetupAxesLimits (0.0, double (dec TimingsArray.Length), 0.0, 35.0)
                 ImPlot.SetupAxes ("Frame", "Time (ms)", ImPlotAxisFlags.NoLabel ||| ImPlotAxisFlags.NoTickLabels, ImPlotAxisFlags.None)
-                GcTimings.CopyTo (TimingsArray, 0)
-                ImPlot.PlotShaded ("Gc Time", &TimingsArray.[0], TimingsArray.Length)
-                MiscTimings.CopyTo (TimingsArray, 0)
-                ImPlot.PlotLine ("Misc Time", &TimingsArray.[0], TimingsArray.Length)
-                PhysicsTimings.CopyTo (TimingsArray, 0)
-                ImPlot.PlotLine ("Physics Time", &TimingsArray.[0], TimingsArray.Length)
-                UpdateTimings.CopyTo (TimingsArray, 0)
-                ImPlot.PlotLine ("Update Time", &TimingsArray.[0], TimingsArray.Length)
-                RenderMessagesTimings.CopyTo (TimingsArray, 0)
-                ImPlot.PlotLine ("Render Msgs", &TimingsArray.[0], TimingsArray.Length)
-                ImGuiTimings.CopyTo (TimingsArray, 0)
-                ImPlot.PlotLine ("ImGui Time", &TimingsArray.[0], TimingsArray.Length)
-                MainThreadTimings.CopyTo (TimingsArray, 0)
-                ImPlot.PlotLine ("Main Thread", &TimingsArray.[0], TimingsArray.Length)
                 FrameTimings.CopyTo (TimingsArray, 0)
                 ImPlot.PlotLine ("Frame Time", &TimingsArray.[0], TimingsArray.Length)
+                MainThreadTimings.CopyTo (TimingsArray, 0)
+                ImPlot.PlotLine ("Main Thread", &TimingsArray.[0], TimingsArray.Length)
+                ImGuiTimings.CopyTo (TimingsArray, 0)
+                ImPlot.PlotLine ("ImGui Time", &TimingsArray.[0], TimingsArray.Length)
+                RenderMessagesTimings.CopyTo (TimingsArray, 0)
+                ImPlot.PlotLine ("Render Msgs", &TimingsArray.[0], TimingsArray.Length)
+                UpdateTimings.CopyTo (TimingsArray, 0)
+                ImPlot.PlotLine ("Update Time", &TimingsArray.[0], TimingsArray.Length)
+                PhysicsTimings.CopyTo (TimingsArray, 0)
+                ImPlot.PlotLine ("Physics Time", &TimingsArray.[0], TimingsArray.Length)
+                MiscTimings.CopyTo (TimingsArray, 0)
+                ImPlot.PlotLine ("Misc Time", &TimingsArray.[0], TimingsArray.Length)
+                GcTimings.CopyTo (TimingsArray, 0)
+                ImPlot.PlotShaded ("Gc Time", &TimingsArray.[0], TimingsArray.Length)
                 ImPlot.EndPlot ()
             ImGui.End ()
             world
@@ -3905,27 +3952,28 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                             "open Prime\n" +
                             "open Nu\n" +
                             "open Nu.Gaia"
-                        try FsiSession.EvalInteraction initial
-                        with exn -> Log.error ("Could not initialize fsi eval due to: " + scstring exn)
+                        match FsiSession.EvalInteractionNonThrowing initial with
+                        | (Choice1Of2 _, _) -> ()
+                        | (Choice2Of2 exn, _) -> Log.error ("Could not initialize fsi eval due to: " + scstring exn)
 
                         // attempt to open namespace derived from project name
                         if projectDllPathValid then
                             let namespaceName = PathF.GetFileNameWithoutExtension (ProjectDllPath.Replace (" ", ""))
-                            try FsiSession.EvalInteraction ("open " + namespaceName)
-                            with _ -> ()
+                            FsiSession.EvalInteractionNonThrowing ("open " + namespaceName) |> ignore<Choice<_, _> * _>
 
                     let world =
-                        try if InteractiveInputStr.Contains (nameof TargetDir) then FsiSession.AddBoundValue (nameof TargetDir, TargetDir)
-                            if InteractiveInputStr.Contains (nameof ProjectDllPath) then FsiSession.AddBoundValue (nameof ProjectDllPath, ProjectDllPath)
-                            if InteractiveInputStr.Contains (nameof SelectedScreen) then FsiSession.AddBoundValue (nameof SelectedScreen, SelectedScreen)
-                            if InteractiveInputStr.Contains (nameof SelectedScreen) then FsiSession.AddBoundValue (nameof SelectedScreen, SelectedScreen)
-                            if InteractiveInputStr.Contains (nameof SelectedGroup) then FsiSession.AddBoundValue (nameof SelectedGroup, SelectedGroup)
-                            if InteractiveInputStr.Contains (nameof SelectedEntityOpt) then
-                                if SelectedEntityOpt.IsNone // HACK: 1/2: workaround for binding a null value with AddBoundValue.
-                                then FsiSession.EvalInteraction "let selectedEntityOpt = Option<Entity>.None;;"
-                                else FsiSession.AddBoundValue (nameof SelectedEntityOpt, SelectedEntityOpt)
-                            if InteractiveInputStr.Contains (nameof world) then FsiSession.AddBoundValue (nameof world, world)
-                            FsiSession.EvalInteraction (InteractiveInputStr + ";;")
+                        if InteractiveInputStr.Contains (nameof TargetDir) then FsiSession.AddBoundValue (nameof TargetDir, TargetDir)
+                        if InteractiveInputStr.Contains (nameof ProjectDllPath) then FsiSession.AddBoundValue (nameof ProjectDllPath, ProjectDllPath)
+                        if InteractiveInputStr.Contains (nameof SelectedScreen) then FsiSession.AddBoundValue (nameof SelectedScreen, SelectedScreen)
+                        if InteractiveInputStr.Contains (nameof SelectedScreen) then FsiSession.AddBoundValue (nameof SelectedScreen, SelectedScreen)
+                        if InteractiveInputStr.Contains (nameof SelectedGroup) then FsiSession.AddBoundValue (nameof SelectedGroup, SelectedGroup)
+                        if InteractiveInputStr.Contains (nameof SelectedEntityOpt) then
+                            if SelectedEntityOpt.IsNone // HACK: 1/2: workaround for binding a null value with AddBoundValue.
+                            then FsiSession.EvalInteractionNonThrowing "let selectedEntityOpt = Option<Entity>.None;;" |> ignore<Choice<_, _> * _>
+                            else FsiSession.AddBoundValue (nameof SelectedEntityOpt, SelectedEntityOpt)
+                        if InteractiveInputStr.Contains (nameof world) then FsiSession.AddBoundValue (nameof world, world)
+                        match FsiSession.EvalInteractionNonThrowing (InteractiveInputStr + ";;") with
+                        | (Choice1Of2 _, _) ->
                             let errorStr = string FsiErrorStream
                             let outStr = string FsiOutStream
                             let outStr =
@@ -3950,8 +3998,9 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                                 | Some wtemp when wtemp.Value.ReflectionType = typeof<World> ->
                                     wtemp.Value.ReflectionValue :?> World
                                 | Some _ | None -> world
-                        with _ ->
-                            InteractiveOutputStr <- InteractiveOutputStr + string FsiErrorStream
+                        | (Choice2Of2 _, diags) ->
+                            let diagsStr = diags |> Array.map _.Message |> String.join Environment.NewLine
+                            InteractiveOutputStr <- InteractiveOutputStr + Environment.NewLine + diagsStr
                             world
                     InteractiveOutputStr <-
                         InteractiveOutputStr.Split Environment.NewLine |>
@@ -4293,11 +4342,12 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
 
     let private imGuiNewGroupDialog world =
         let title = "Create a group..."
-        if not (ImGui.IsPopupOpen title) then ImGui.OpenPopup title
+        let opening = not (ImGui.IsPopupOpen title)
+        if opening then ImGui.OpenPopup title
         if ImGui.BeginPopupModal (title, &ShowNewGroupDialog) then
             ImGui.Text "Group Name:"
             ImGui.SameLine ()
-            ImGui.SetKeyboardFocusHere ()
+            if opening then ImGui.SetKeyboardFocusHere ()
             ImGui.InputTextWithHint ("##newGroupName", "[enter group name]", &NewGroupName, 4096u) |> ignore<bool>
             let newGroup = SelectedScreen / NewGroupName
             if ImGui.BeginCombo ("##newGroupDispatcherName", NewGroupDispatcherName, ImGuiComboFlags.HeightLarge) then
@@ -4794,7 +4844,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                           InsetOpt = None
                           MaterialProperties = MaterialProperties.defaultProperties
                           StaticModel = Assets.Default.HighlightModel
-                          RenderType = ForwardRenderType (0.0f, Single.MinValue)
+                          RenderType = ForwardRenderType (0.0f, Single.MaxValue)
                           RenderPass = NormalPass })
                     world
         | Some _ | None -> ()
