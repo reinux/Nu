@@ -455,13 +455,14 @@ type [<SymbolicExpansion>] Lighting3dConfig =
       SsrDetail : single
       SsrRefinementsMax : int
       SsrRayThickness : single
+      SsrTowardEyeCutoff : single
       SsrDepthCutoff : single
-      SsrDistanceCutoff : single
-      SsrRoughnessCutoff : single
-      SsrSlopeCutoff : single
-      SsrRoughnessCutoffMargin : single
       SsrDepthCutoffMargin : single
+      SsrDistanceCutoff : single
       SsrDistanceCutoffMargin : single
+      SsrRoughnessCutoff : single
+      SsrRoughnessCutoffMargin : single
+      SsrSlopeCutoff : single
       SsrSlopeCutoffMargin : single
       SsrEdgeHorizontalMargin : single
       SsrEdgeVerticalMargin : single
@@ -480,13 +481,14 @@ type [<SymbolicExpansion>] Lighting3dConfig =
           SsrDetail = Constants.Render.SsrDetailDefault
           SsrRefinementsMax = Constants.Render.SsrRefinementsMaxDefault
           SsrRayThickness = Constants.Render.SsrRayThicknessDefault
+          SsrTowardEyeCutoff = Constants.Render.SsrTowardEyeCutoffDefault
           SsrDepthCutoff = Constants.Render.SsrDepthCutoffDefault
-          SsrDistanceCutoff = Constants.Render.SsrDistanceCutoffDefault
-          SsrRoughnessCutoff = Constants.Render.SsrRoughnessCutoffDefault
-          SsrSlopeCutoff = Constants.Render.SsrSlopeCutoffDefault
-          SsrRoughnessCutoffMargin = Constants.Render.SsrRoughnessCutoffMarginDefault
           SsrDepthCutoffMargin = Constants.Render.SsrDepthCutoffMarginDefault
+          SsrDistanceCutoff = Constants.Render.SsrDistanceCutoffDefault
           SsrDistanceCutoffMargin = Constants.Render.SsrDistanceCutoffMarginDefault
+          SsrRoughnessCutoff = Constants.Render.SsrRoughnessCutoffDefault
+          SsrRoughnessCutoffMargin = Constants.Render.SsrRoughnessCutoffMarginDefault
+          SsrSlopeCutoff = Constants.Render.SsrSlopeCutoffDefault
           SsrSlopeCutoffMargin = Constants.Render.SsrSlopeCutoffMarginDefault
           SsrEdgeHorizontalMargin = Constants.Render.SsrEdgeHorizontalMarginDefault
           SsrEdgeVerticalMargin = Constants.Render.SsrEdgeVerticalMarginDefault
@@ -783,8 +785,6 @@ type Renderer3d =
     abstract RendererConfig : Renderer3dConfig
     /// Render a frame of the game.
     abstract Render : Frustum -> Frustum -> Frustum -> Box3 -> Vector3 -> Quaternion -> Vector2i -> RenderMessage3d List -> unit
-    /// Swap a rendered frame of the game.
-    abstract Swap : unit -> unit
     /// Handle render clean up by freeing all loaded render assets.
     abstract CleanUp : unit -> unit
 
@@ -796,7 +796,6 @@ type [<ReferenceEquality>] StubRenderer3d =
     interface Renderer3d with
         member renderer.RendererConfig = Renderer3dConfig.defaultConfig
         member renderer.Render _ _ _ _ _ _ _ _ = ()
-        member renderer.Swap () = ()
         member renderer.CleanUp () = ()
 
     static member make () =
@@ -2745,8 +2744,9 @@ type [<ReferenceEquality>] GlRenderer3d =
         let ssrLightColor = Array.take 3 (renderer.LightingConfig.SsrLightColor.ToArray ())
         OpenGL.PhysicallyBased.DrawPhysicallyBasedDeferredLightingSurface
             (eyeCenter, viewRelativeArray, rasterProjectionArray, renderer.LightingConfig.LightCutoffMargin, lightAmbientColor, lightAmbientBrightness, renderer.LightingConfig.ShadowBiasAcne, renderer.LightingConfig.ShadowBiasBleed,
-             ssrEnabled, renderer.LightingConfig.SsrDetail, renderer.LightingConfig.SsrRefinementsMax, renderer.LightingConfig.SsrRayThickness, renderer.LightingConfig.SsrDepthCutoff, renderer.LightingConfig.SsrDistanceCutoff, renderer.LightingConfig.SsrRoughnessCutoff, renderer.LightingConfig.SsrSlopeCutoff,
-             renderer.LightingConfig.SsrRoughnessCutoffMargin, renderer.LightingConfig.SsrDepthCutoffMargin, renderer.LightingConfig.SsrDistanceCutoffMargin, renderer.LightingConfig.SsrSlopeCutoffMargin, renderer.LightingConfig.SsrEdgeHorizontalMargin, renderer.LightingConfig.SsrEdgeVerticalMargin,
+             ssrEnabled, renderer.LightingConfig.SsrDetail, renderer.LightingConfig.SsrRefinementsMax, renderer.LightingConfig.SsrRayThickness, renderer.LightingConfig.SsrTowardEyeCutoff,
+             renderer.LightingConfig.SsrDepthCutoff, renderer.LightingConfig.SsrDepthCutoffMargin, renderer.LightingConfig.SsrDistanceCutoff, renderer.LightingConfig.SsrDistanceCutoffMargin, renderer.LightingConfig.SsrRoughnessCutoff, renderer.LightingConfig.SsrRoughnessCutoffMargin,
+             renderer.LightingConfig.SsrSlopeCutoff, renderer.LightingConfig.SsrSlopeCutoffMargin, renderer.LightingConfig.SsrEdgeHorizontalMargin, renderer.LightingConfig.SsrEdgeVerticalMargin,
              ssrLightColor, renderer.LightingConfig.SsrLightBrightness, positionTexture, albedoTexture, materialTexture, normalPlusTexture, renderer.BrdfTexture, irradianceTexture, environmentFilterTexture, ssaoTextureFiltered, shadowTextures,
              lightOrigins, lightDirections, lightColors, lightBrightnesses, lightAttenuationLinears, lightAttenuationQuadratics, lightCutoffs, lightDirectionals, lightConeInners, lightConeOuters, lightShadowIndices, lightsCount, shadowMatrices,
              renderer.PhysicallyBasedQuad, renderer.PhysicallyBasedDeferredLightingShader)
@@ -3438,12 +3438,6 @@ type [<ReferenceEquality>] GlRenderer3d =
             OpenGL.Hl.ResetDrawCalls ()
             if renderMessages.Count > 0 then
                 GlRenderer3d.render frustumInterior frustumExterior frustumImposter lightBox eyeCenter eyeRotation windowSize 0u 0u renderMessages renderer
-
-        member renderer.Swap () =
-            match renderer.Window with
-            | SglWindow window ->
-                OpenGL.Gl.Finish () // NOTE: some architectures seem to require that we call this before swapping.
-                SDL.SDL_GL_SwapWindow window.SglWindow
 
         member renderer.CleanUp () =
             OpenGL.Gl.DeleteProgram renderer.SkyBoxShader.SkyBoxShader
