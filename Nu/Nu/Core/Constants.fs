@@ -132,7 +132,7 @@ module Render =
     let [<Literal>] LightsMaxForward = 8
     let [<Literal>] ShadowsMaxShader = 16 // NOTE: remember to update SHADOWS_MAX in shaders when changing this!
     let [<Uniform>] mutable ShadowsMax = match ConfigurationManager.AppSettings.["ShadowsMax"] with null -> 8 | shadowsMax -> min (scvalue shadowsMax) ShadowsMaxShader
-    let [<Uniform>] mutable ShadowDetailedCount = match ConfigurationManager.AppSettings.["ShadowDetailedCount"] with null -> 1 | scalar -> scvalue scalar
+    let [<Uniform>] mutable ShadowDetailedCount = match ConfigurationManager.AppSettings.["ShadowDetailedCount"] with null -> 1 | count -> scvalue count
     let [<Uniform>] mutable ShadowDetailedResolutionScalar = match ConfigurationManager.AppSettings.["ShadowDetailedResolutionScalar"] with null -> 3 | scalar -> scvalue scalar
     let [<Literal>] ShadowFovMax = 2.1f // NOTE: remember to update SHADOW_FOV_MAX in shaders when changing this!
     let [<Literal>] ReflectionMapResolution = 1024
@@ -155,7 +155,7 @@ module Render =
     let [<Literal>] SsaoDistanceMaxDefault = 0.125f
     let [<Literal>] SsvfEnabledGlobalDefault = false
     let [<Literal>] SsvfEnabledLocalDefault = true
-    let [<Literal>] SsvfStepsDefault = 48
+    let [<Literal>] SsvfStepsDefault = 24
     let [<Literal>] SsvfAsymmetryDefault = 0.5f
     let [<Literal>] SsvfIntensityDefault = 0.5f
     let [<Literal>] SsrEnabledGlobalDefault = false
@@ -168,8 +168,8 @@ module Render =
     let [<Literal>] SsrDepthCutoffMarginDefault = 0.2f
     let [<Literal>] SsrDistanceCutoffDefault = 16.0f
     let [<Literal>] SsrDistanceCutoffMarginDefault = 0.2f
-    let [<Literal>] SsrRoughnessCutoffDefault = 0.6f
-    let [<Literal>] SsrRoughnessCutoffMarginDefault = 0.5f
+    let [<Literal>] SsrRoughnessCutoffDefault = 0.3f
+    let [<Literal>] SsrRoughnessCutoffMarginDefault = 0.3f
     let [<Literal>] SsrSlopeCutoffDefault = 0.1f
     let [<Literal>] SsrSlopeCutoffMarginDefault = 0.2f
     let [<Literal>] SsrEdgeHorizontalMarginDefault = 0.05f
@@ -190,7 +190,7 @@ module Render =
     let [<Literal>] HeightDefault = 1.0f
     let [<Literal>] IgnoreLightMapsDefault = false
     let [<Literal>] OpaqueDistanceDefault = 100000.0f
-    let [<Literal>] FontSizeDefault = 16
+    let [<Literal>] FontSizeDefault = 14
 
 [<RequireQualifiedAccess>]
 module Audio =
@@ -239,7 +239,8 @@ module Associations =
 [<RequireQualifiedAccess>]
 module Gui =
 
-    let [<Uniform>] DisabledColor = Color (0.75f, 0.75f, 0.75f, 0.75f)
+    let [<Uniform>] mutable SliceMarginDefault = match ConfigurationManager.AppSettings.["SliceMarginDefault"] with null -> Vector2 (4.0f, 4.0f) | marginDefault -> scvalue marginDefault
+    let [<Uniform>] DisabledColorDefault = Color (0.75f, 0.75f, 0.75f, 0.75f)
 
 [<RequireQualifiedAccess>]
 module TileMap =
@@ -269,6 +270,8 @@ module Paths =
     let [<Literal>] EnvironmentFilterShaderFilePath = "Assets/Default/EnvironmentFilter.glsl"
     let [<Literal>] FilterBox1dShaderFilePath = "Assets/Default/FilterBox1d.glsl"
     let [<Literal>] FilterGaussian2dShaderFilePath = "Assets/Default/FilterGaussian2d.glsl"
+    let [<Literal>] FilterBilateralDownSample4dShaderFilePath = "Assets/Default/FilterBilateralDownSample4d.glsl"
+    let [<Literal>] FilterBilateralUpSample4dShaderFilePath = "Assets/Default/FilterBilateralUpSample4d.glsl"
     let [<Literal>] FilterFxaaShaderFilePath = "Assets/Default/FilterFxaa.glsl"
     let [<Literal>] PhysicallyBasedShadowStaticShaderFilePath = "Assets/Default/PhysicallyBasedShadowStatic.glsl"
     let [<Literal>] PhysicallyBasedShadowAnimatedShaderFilePath = "Assets/Default/PhysicallyBasedShadowAnimated.glsl"
@@ -284,4 +287,5 @@ module Paths =
     let [<Literal>] PhysicallyBasedDeferredEnvironmentFilterShaderFilePath = "Assets/Default/PhysicallyBasedDeferredEnvironmentFilter.glsl"
     let [<Literal>] PhysicallyBasedDeferredSsaoShaderFilePath = "Assets/Default/PhysicallyBasedDeferredSsao.glsl"
     let [<Literal>] PhysicallyBasedDeferredLightingShaderFilePath = "Assets/Default/PhysicallyBasedDeferredLighting.glsl"
+    let [<Literal>] PhysicallyBasedDeferredCompositionShaderFilePath = "Assets/Default/PhysicallyBasedDeferredComposition.glsl"
     let [<Literal>] PhysicallyBasedForwardStaticShaderFilePath = "Assets/Default/PhysicallyBasedForwardStatic.glsl"
