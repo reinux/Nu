@@ -1,4 +1,4 @@
-﻿namespace Breakout
+﻿namespace MyGame
 open System
 open System.Numerics
 open Prime
@@ -7,6 +7,7 @@ open Nu
 // this represents the state of gameplay simulation.
 type GameplayState =
     | Playing
+    | Quitting
     | Quit
 
 // the user-controlled paddle.
@@ -62,7 +63,7 @@ type [<SymbolicExpansion>] Gameplay =
     // this represents the gameplay model in a vacant state, such as when the gameplay screen is not selected.
     static member empty =
         { GameplayTime = 0L
-          GameplayState = Quit
+          GameplayState = Quitting
           Paddle = Paddle.initial
           Ball = Ball.initial
           Bricks = Map.empty
@@ -161,20 +162,7 @@ type [<SymbolicExpansion>] Gameplay =
             // fin
             gameplay
 
-        | Playing | Quit -> gameplay
-
-// this is our gameplay MMCC message type.
-type GameplayMessage =
-    | StartPlaying
-    | FinishQuitting
-    | Update
-    | TimeUpdate
-    interface Message
-
-// this is our gameplay MMCC command type.
-type GameplayCommand =
-    | StartQuitting
-    interface Command
+        | _ -> gameplay
 
 // this extends the Screen API to expose the Gameplay model as well as the Quit event.
 [<AutoOpen>]
@@ -183,11 +171,10 @@ module GameplayExtensions =
         member this.GetGameplay world = this.GetModelGeneric<Gameplay> world
         member this.SetGameplay value world = this.SetModelGeneric<Gameplay> value world
         member this.Gameplay = this.ModelGeneric<Gameplay> ()
-        member this.QuitEvent = Events.QuitEvent --> this
 
 // this is the dispatcher that defines the behavior of the screen where gameplay takes place.
 type GameplayDispatcher () =
-    inherit ScreenDispatcher<Gameplay, GameplayMessage, GameplayCommand> (Gameplay.empty)
+    inherit ScreenDispatcher<Gameplay> (Gameplay.empty)
 
     // here we define the screen's fallback model depending on whether screen is selected
     override this.GetFallbackModel (_, screen, world) =
@@ -195,107 +182,82 @@ type GameplayDispatcher () =
         then Gameplay.initial
         else Gameplay.empty
 
-    // here we define the screen's property values and event handling
-    override this.Definitions (_, _) =
-        [Screen.SelectEvent => StartPlaying
-         Screen.DeselectingEvent => FinishQuitting
-         Screen.UpdateEvent => Update
-         Screen.TimeUpdateEvent => TimeUpdate]
+    // here we define the behavior of our gameplay
+    override this.Run (gameplay, _, world) =
 
-    // here we handle the above messages
-    override this.Message (gameplay, message, _, world) =
+        // update model when advancing
+        let gameplay =
+            if world.Advancing
+            then Gameplay.update gameplay world
+            else gameplay
 
-        match message with
-        | StartPlaying ->
-            let gameplay = Gameplay.initial
-            just gameplay
+        // declare scene group
+        let world = World.beginGroupFromFile "Scene" "Assets/Gameplay/Scene.nugroup" [] world
 
-        | FinishQuitting ->
-            let gameplay = Gameplay.empty
-            just gameplay
+        // background model
+        let rotation = Quaternion.CreateFromAxisAngle ((v3 1.0f 0.75f 0.5f).Normalized, gameplay.GameplayTime % 360L |> single |> Math.DegreesToRadians)
+        let world = World.doStaticModel "StaticModel" [Entity.Position .= v3 0.0f 0.0f -2.0f; Entity.Rotation @= rotation] world
 
-        | Update ->
-            let gameplay = Gameplay.update gameplay world
-            just gameplay
+        // paddle
+        let world =
+            World.doStaticSprite "Paddle"
+                [Entity.Position @= gameplay.Paddle.Position
+                 Entity.Size .= gameplay.Paddle.Size
+                 Entity.StaticImage .= Assets.Default.Paddle] world
 
-        | TimeUpdate ->
-            let gameDelta = world.GameDelta
-            let gameplay = { gameplay with GameplayTime = gameplay.GameplayTime + gameDelta.Updates }
-            just gameplay
+        // ball
+        let world =
+            World.doStaticSprite "Ball"
+                [Entity.Position @= gameplay.Ball.Position
+                 Entity.Size .= gameplay.Ball.Size
+                 Entity.StaticImage .= Assets.Default.Ball] world
 
-    // here we handle the above commands
-    override this.Command (_, command, screen, world) =
+        // walls
+        let world = World.doStaticSprite "LeftWall" [Entity.Position .= v3 -164.0f 0.0f 0.0f; Entity.Size .= v3 8.0f 360.0f 0.0f; Entity.StaticImage .= Assets.Default.Black] world
+        let world = World.doStaticSprite "RightWall" [Entity.Position .= v3 164.0f 0.0f 0.0f; Entity.Size .= v3 8.0f 360.0f 0.0f; Entity.StaticImage .= Assets.Default.Black] world
+        let world = World.doStaticSprite "TopWall" [Entity.Position .= v3 0.0f 176.0f 0.0f; Entity.Size .= v3 320.0f 8.0f 0.0f; Entity.StaticImage .= Assets.Default.Black] world
 
-        match command with
-        | StartQuitting ->
-            let world = World.publish () screen.QuitEvent screen world
-            just world
+        // bricks
+        let world =
+            gameplay.Bricks.Pairs |> Seq.fold (fun world (brickName, brick) ->
+                World.doStaticSprite brickName
+                    [Entity.Position .= brick.Position
+                     Entity.Size .= brick.Size
+                     Entity.Color @= brick.Color
+                     Entity.StaticImage .= Assets.Default.Brick] world) world
 
-    // here we describe the content of the game including the hud, the scene, and the player
-    override this.Content (gameplay, _) =
+        // end scene declaration
+        let world = World.endGroup world
 
-        [// the gui group
-         Content.group Simulants.GameplayGui.Name []
+        // declare gui group
+        let world = World.beginGroup "Gui" [] world
 
-            [// score
-             Content.text "Score"
-                [Entity.Position == v3 248.0f 136.0f 0.0f
-                 Entity.Text := "Score: " + string gameplay.Score]
+        // declare score
+        let world = World.doText "Score" [Entity.Position .= v3 248.0f 136.0f 0.0f; Entity.Text @= "Score: " + string gameplay.Score] world
 
-             // lives
-             Content.text "Lives"
-                [Entity.Position == v3 -240.0f 0.0f 0.0f
-                 Entity.Text == "Lives"]
-             for i in 0 .. dec gameplay.Lives do
-                Content.staticSprite ("Life+" + string i)
-                    [Entity.Position == v3 -240.0f (single (inc i) * -16.0f) 0.0f
-                     Entity.Size == v3 32.0f 8.0f 0.0f
-                     Entity.StaticImage == Assets.Default.Paddle]
+        // declare lives
+        let world = World.doText "Lives" [Entity.Position .= v3 -240.0f 0.0f 0.0f; Entity.Text .= "Lives"] world
+        let world =
+            [0 .. dec gameplay.Lives] |> List.fold (fun world i ->
+                World.doStaticSprite ("Life+" + string i)
+                    [Entity.Position .= v3 -240.0f (single (inc i) * -16.0f) 0.0f
+                     Entity.Size .= v3 32.0f 8.0f 0.0f
+                     Entity.StaticImage .= Assets.Default.Paddle] world) world
 
-             // message
-             Content.text "Message"
-                [Entity.Text := if gameplay.Lives <= 0 then "Game over!" elif gameplay.Bricks.Count = 0 then "You win!" else ""]
+        // declare message
+        let messageText = if gameplay.Lives <= 0 then "Game over!" elif gameplay.Bricks.Count = 0 then "You win!" else ""
+        let world = World.doText "Message" [Entity.Text @= messageText] world
              
-             // quit
-             Content.button Simulants.GameplayQuit.Name
-                [Entity.Position == v3 232.0f -144.0f 0.0f
-                 Entity.Elevation == 10.0f
-                 Entity.Text == "Quit"
-                 Entity.ClickEvent => StartQuitting]]
+        // declare quit button
+        let (gameplay, world) =
+            match World.doButton "Quit" [Entity.Text .= "Quit"; Entity.Position .= v3 232.0f -144.0f 0.0f] world with
+            | (true, world) -> ({ gameplay with GameplayState = Quitting }, world)
+            | (false, world) -> (gameplay, world)
+        
+        // end group declaration
+        let world = World.endGroup world
 
-         // the scene group while playing
-         match gameplay.GameplayState with
-         | Playing ->
-            Content.groupFromFile Simulants.GameplayScene.Name "Assets/Gameplay/Scene.nugroup" []
-                [Content.staticModel "StaticModel"
-                    [Entity.Position == v3 0.0f 0.0f -2.0f
-                     Entity.Rotation := Quaternion.CreateFromAxisAngle ((v3 1.0f 0.75f 0.5f).Normalized, gameplay.GameplayTime % 360L |> single |> Math.DegreesToRadians)]
-                 Content.staticSprite "Paddle"
-                    [Entity.Position := gameplay.Paddle.Position
-                     Entity.Size == gameplay.Paddle.Size
-                     Entity.StaticImage == Assets.Default.Paddle]
-                 Content.staticSprite "Ball"
-                    [Entity.Position := gameplay.Ball.Position
-                     Entity.Size == gameplay.Ball.Size
-                     Entity.StaticImage == Assets.Default.Ball]
-                 Content.staticSprite "LeftWall"
-                    [Entity.Position == v3 -164.0f 0.0f 0.0f
-                     Entity.Size == v3 8.0f 360.0f 0.0f
-                     Entity.StaticImage == Assets.Default.Black]
-                 Content.staticSprite "RightWall"
-                    [Entity.Position == v3 164.0f 0.0f 0.0f
-                     Entity.Size == v3 8.0f 360.0f 0.0f
-                     Entity.StaticImage == Assets.Default.Black]
-                 Content.staticSprite "TopWall"
-                    [Entity.Position == v3 0.0f 176.0f 0.0f
-                     Entity.Size == v3 320.0f 8.0f 0.0f
-                     Entity.StaticImage == Assets.Default.Black]
-                 for (brickName, brick) in gameplay.Bricks.Pairs do
-                    Content.staticSprite brickName
-                        [Entity.Position == brick.Position
-                         Entity.Size == brick.Size
-                         Entity.Color := brick.Color
-                         Entity.StaticImage == Assets.Default.Brick]]
-
-         // no scene group otherwise
-         | Quit -> ()]
+        // advance gameplay time
+        let gameDelta = world.GameDelta
+        let gameplay = { gameplay with GameplayTime = gameplay.GameplayTime + gameDelta.Updates }
+        (gameplay, world)
