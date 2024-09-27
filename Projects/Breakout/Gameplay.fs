@@ -183,16 +183,19 @@ type GameplayDispatcher () =
         else Gameplay.empty
 
     // here we define the behavior of our gameplay
-    override this.Run (gameplay, _, world) =
+    override this.Run (gameplay, screen, world) =
 
-        // update model when advancing
+        // update gameplay when advancing
         let gameplay =
             if world.Advancing
             then Gameplay.update gameplay world
             else gameplay
 
         // declare scene group
-        let world = World.beginGroupFromFile "Scene" "Assets/Gameplay/Scene.nugroup" [] world
+        let world =
+            if screen.GetSelected world
+            then World.beginGroupFromFile "Scene" "Assets/Gameplay/Scene.nugroup" [] world
+            else World.beginGroup "Scene" [] world
 
         // background model
         let rotation = Quaternion.CreateFromAxisAngle ((v3 1.0f 0.75f 0.5f).Normalized, gameplay.GameplayTime % 360L |> single |> Math.DegreesToRadians)
@@ -213,9 +216,21 @@ type GameplayDispatcher () =
                  Entity.StaticImage .= Assets.Default.Ball] world
 
         // walls
-        let world = World.doStaticSprite "LeftWall" [Entity.Position .= v3 -164.0f 0.0f 0.0f; Entity.Size .= v3 8.0f 360.0f 0.0f; Entity.StaticImage .= Assets.Default.Black] world
-        let world = World.doStaticSprite "RightWall" [Entity.Position .= v3 164.0f 0.0f 0.0f; Entity.Size .= v3 8.0f 360.0f 0.0f; Entity.StaticImage .= Assets.Default.Black] world
-        let world = World.doStaticSprite "TopWall" [Entity.Position .= v3 0.0f 176.0f 0.0f; Entity.Size .= v3 320.0f 8.0f 0.0f; Entity.StaticImage .= Assets.Default.Black] world
+        let world =
+            World.doStaticSprite "LeftWall"
+                [Entity.Position .= v3 -164.0f 0.0f 0.0f
+                 Entity.Size .= v3 8.0f 360.0f 0.0f
+                 Entity.StaticImage .= Assets.Default.Black] world
+        let world =
+            World.doStaticSprite "RightWall"
+                [Entity.Position .= v3 164.0f 0.0f 0.0f
+                 Entity.Size .= v3 8.0f 360.0f 0.0f
+                 Entity.StaticImage .= Assets.Default.Black] world
+        let world =
+            World.doStaticSprite "TopWall"
+                [Entity.Position .= v3 0.0f 176.0f 0.0f
+                 Entity.Size .= v3 320.0f 8.0f 0.0f
+                 Entity.StaticImage .= Assets.Default.Black] world
 
         // bricks
         let world =
@@ -247,7 +262,7 @@ type GameplayDispatcher () =
         // declare message
         let messageText = if gameplay.Lives <= 0 then "Game over!" elif gameplay.Bricks.Count = 0 then "You win!" else ""
         let world = World.doText "Message" [Entity.Text @= messageText] world
-             
+
         // declare quit button
         let (gameplay, world) =
             match World.doButton "Quit" [Entity.Text .= "Quit"; Entity.Position .= v3 232.0f -144.0f 0.0f] world with
