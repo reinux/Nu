@@ -85,6 +85,7 @@ module Gaia =
     let mutable private InteractiveInputFocusRequested = false
     let mutable private InteractiveInputStr = ""
     let mutable private InteractiveOutputStr = ""
+    let mutable private LogStr = ""
 
     (* Configuration States *)
 
@@ -177,7 +178,7 @@ module Gaia =
 
     (* Fsi Session *)
 
-    let FsProjectNoWarn = "--nowarn:FS9;FS1178;FS3391;FS3536;FS3560"
+    let FsProjectNoWarn = "--nowarn:FS0009;FS0052;FS1178;FS3391;FS3536;FS3560"
     let FsiArgs = [|"fsi.exe"; "--debug+"; "--debug:full"; "--define:DEBUG"; "--optimize-"; "--tailcalls-"; "--multiemit+"; "--gui-"; "--nologo"; FsProjectNoWarn|] // TODO: see if can we use --warnon as well.
     let FsiConfig = Shell.FsiEvaluationSession.GetDefaultConfiguration ()
     let private FsiErrorStream = new StringWriter ()
@@ -211,6 +212,12 @@ Pos=286,846
 Size=675,234
 Collapsed=0
 DockId=0x00000001,0
+
+[Window][Log]
+Pos=963,846
+Size=650,234
+Collapsed=0
+DockId=0x00000009,7
 
 [Window][Metrics]
 Pos=963,846
@@ -420,7 +427,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
           DockNode    ID=0x00000004 Parent=0x00000005 SizeRef=1678,788 CentralNode=1
           DockNode    ID=0x00000003 Parent=0x00000005 SizeRef=1678,234 Split=X Selected=0xD4E24632
             DockNode  ID=0x00000001 Parent=0x00000003 SizeRef=675,205 Selected=0x9CF3CB04
-            DockNode  ID=0x00000009 Parent=0x00000003 SizeRef=650,205 Selected=0xD92922EC
+            DockNode  ID=0x00000009 Parent=0x00000003 SizeRef=650,205 Selected=0x64F50EE5
         DockNode      ID=0x00000006 Parent=0x00000008 SizeRef=346,979 Selected=0x199AB496
     DockNode          ID=0x0000000E Parent=0x0000000F SizeRef=305,1080 Selected=0xD5116FF8
 
@@ -1185,7 +1192,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                     let mutable fsiDynamicCompiler = FsiSession.GetType().GetField("fsiDynamicCompiler", BindingFlags.NonPublic ||| BindingFlags.Instance).GetValue(FsiSession)
                     fsiDynamicCompiler.GetType().GetField("resolveAssemblyRef", BindingFlags.NonPublic ||| BindingFlags.Instance).SetValue(fsiDynamicCompiler, null)
                     fsiDynamicCompiler <- null
-                    
+
                     // HACK: same as above, but for another place.
                     let mutable tcConfigB = FsiSession.GetType().GetField("tcConfigB", BindingFlags.NonPublic ||| BindingFlags.Instance).GetValue(FsiSession)
                     tcConfigB.GetType().GetField("tryGetMetadataSnapshot@", BindingFlags.NonPublic ||| BindingFlags.Instance).SetValue(tcConfigB, null)
@@ -3173,8 +3180,40 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                       SsvfEnabled = ssvfEnabled
                       SsrEnabled = ssrEnabled }
                 World.enqueueRenderMessage3d (ConfigureRenderer3d renderer3dConfig) world
+            ImGui.End ()
             world
         else world
+
+    let private imGuiLogWindow world =
+        let lines = LogStr.Split '\n'
+        let warnings = lines |> Seq.filter (fun line -> line.Contains "|Warn|") |> Seq.length
+        let errors = lines |> Seq.filter (fun line -> line.Contains "|Error|") |> Seq.length
+        let flag = warnings > 0 || errors > 0
+        let flash = flag && DateTimeOffset.Now.Millisecond / 400 % 2 = 0
+        if flash then
+            let flashColor =
+                if errors > 0 then let red = Color.Red in red.Abgr
+                elif warnings > 0 then let yellow = Color.Yellow in yellow.Abgr
+                else failwithumf ()
+            ImGui.PushStyleColor (ImGuiCol.TitleBg, flashColor)
+            ImGui.PushStyleColor (ImGuiCol.TitleBgActive, flashColor)
+            ImGui.PushStyleColor (ImGuiCol.TitleBgCollapsed, flashColor)
+            ImGui.PushStyleColor (ImGuiCol.Tab, flashColor)
+            ImGui.PushStyleColor (ImGuiCol.TabActive, flashColor)
+            ImGui.PushStyleColor (ImGuiCol.TabHovered, flashColor)
+        if ImGui.Begin ("Log", ImGuiWindowFlags.NoNav) then
+            ImGui.Text "Log:"
+            ImGui.SameLine ()
+            if ImGui.SmallButton "Clear" || ImGui.IsKeyReleased ImGuiKey.C && ImGui.IsAltDown () then LogStr <- ""
+            if ImGui.IsItemHovered ImGuiHoveredFlags.DelayNormal && ImGui.BeginTooltip () then
+                ImGui.Text "Clear evaluation output (Alt+C)"
+                ImGui.EndTooltip ()
+            ImGui.BeginChild ("##outputBufferStr", v2Zero, false, ImGuiWindowFlags.HorizontalScrollbar) |> ignore<bool>
+            ImGui.TextUnformatted LogStr
+            ImGui.EndChild ()
+            ImGui.End ()
+        if flash then for i in 0 .. 6 do ImGui.PopStyleColor ()
+        world
 
     let private imGuiEditorConfigWindow () =
         if ImGui.Begin ("Editor", ImGuiWindowFlags.NoNav) then
@@ -3263,7 +3302,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
             ImGui.Text "Project Type"
             ImGui.SameLine ()
             if ImGui.BeginCombo ("##newProjectType", NewProjectType) then
-                for projectType in ["MMCC Empty"; "MMCC Game"; "ImNui Empty"; "ImNui Game"] do
+                for projectType in ["MMCC Empty"; "MMCC Game"; "ImNui Empty (Experimental)"; "ImNui Game (Experimental)"] do
                     if ImGui.Selectable projectType then
                         NewProjectType <- projectType
                 ImGui.EndCombo ()
@@ -3271,8 +3310,8 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                 match NewProjectType with
                 | "MMCC Empty" -> "Create an empty MMCC game project. This contains the minimum code needed to experiment with Nu in a sandbox environment."
                 | "MMCC Game" -> "Create a full MMCC game project. This contains the structures and pieces that embody the best practices of Nu usage."
-                | "ImNui Empty" -> "Create an empty ImNui game project. This contains the minimum code needed to experiment with Nu in a sandbox environment."
-                | "ImNui Game" -> "Create a full ImNui game project. This contains the structures and pieces that embody the best practices of Nu usage."
+                | "ImNui Empty (Experimental)" -> "Create an empty ImNui game project. This contains the minimum code needed to experiment with Nu in a sandbox environment."
+                | "ImNui Game (Experimental)" -> "Create a full ImNui game project. This contains the structures and pieces that embody the best practices of Nu usage."
                 | _ -> failwithumf ()
             ImGui.Separator ()
             ImGui.TextWrapped ("Description: " + projectTypeDescription)
@@ -3296,8 +3335,8 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                     match NewProjectType with
                     | "MMCC Empty" -> ("Nu.Template.Mmcc.Empty.fsproj", PathF.GetFullPath (programDir + "/../../../../Nu.Template.Mmcc.Empty"), "Initial")
                     | "MMCC Game" -> ("Nu.Template.Mmcc.Game.fsproj", PathF.GetFullPath (programDir + "/../../../../Nu.Template.Mmcc.Game"), "Title")
-                    | "ImNui Empty" -> ("Nu.Template.ImNui.Empty.fsproj", PathF.GetFullPath (programDir + "/../../../../Nu.Template.ImNui.Empty"), "Initial")
-                    | "ImNui Game" -> ("Nu.Template.ImNui.Game.fsproj", PathF.GetFullPath (programDir + "/../../../../Nu.Template.ImNui.Game"), "Title")
+                    | "ImNui Empty (Experimental)" -> ("Nu.Template.ImNui.Empty.fsproj", PathF.GetFullPath (programDir + "/../../../../Nu.Template.ImNui.Empty"), "Initial")
+                    | "ImNui Game (Experimental)" -> ("Nu.Template.ImNui.Game.fsproj", PathF.GetFullPath (programDir + "/../../../../Nu.Template.ImNui.Game"), "Title")
                     | _ -> failwithumf ()
                 if Directory.Exists templateDir then
 
@@ -3849,6 +3888,7 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
                         let world = imGuiOverlayerWindow world
                         let world = imGuiAssetGraphWindow world
                         let world = imGuiEditPropertyWindow world
+                        let world = imGuiLogWindow world
                         let world = imGuiMetricsWindow world
                         let world = imGuiInteractiveWindow world
                         let world = imGuiEventTracingWindow world
@@ -4029,8 +4069,14 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
         Snaps2dSelected <- gaiaState.Snaps2dSelected
         Snaps2d <- gaiaState.Snaps2d
         Snaps3d <- gaiaState.Snaps3d
+        NewEntityDispatcherName <- World.getEntityDispatchers world |> Seq.head |> fun kvp -> kvp.Key
         NewEntityElevation <- gaiaState.CreationElevation
         NewEntityDistance <- gaiaState.CreationDistance
+        Trace.Listeners.Add $
+            { new TraceListener () with
+                override this.Write (message : string) = LogStr <- LogStr + message
+                override this.WriteLine (message : string) = LogStr <- LogStr + message + "\n" } |>
+            ignore<int>
         AlternativeEyeTravelInput <- gaiaState.AlternativeEyeTravelInput
         let world =
             if not gaiaState.ProjectFreshlyLoaded then
@@ -4054,7 +4100,6 @@ DockSpace             ID=0x8B93E3BD Window=0xA787BDB4 Pos=0,0 Size=1920,1080 Spl
         EntityFileDialogState <- ImGuiFileDialogState (TargetDir + "/../../..")
         selectScreen false screen
         let world = selectGroupInitial screen world
-        NewEntityDispatcherName <- World.getEntityDispatchers world |> Seq.head |> fun kvp -> kvp.Key
         AssetGraphStr <-
             match AssetGraph.tryMakeFromFile (TargetDir + "/" + Assets.Global.AssetGraphFilePath) with
             | Right assetGraph ->

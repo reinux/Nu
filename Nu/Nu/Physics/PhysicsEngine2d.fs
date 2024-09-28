@@ -64,12 +64,6 @@ type [<ReferenceEquality>] PhysicsEngine2d =
               Normal = Vector3 (normal.X, normal.Y, 0.0f) }
         let integrationMessage = BodyPenetrationMessage bodyPenetrationMessage
         integrationMessages.Add integrationMessage
-        let bodyPenetrationMessage2 =
-            { BodyShapeSource = bodyPenetrationMessage.BodyShapeSource2
-              BodyShapeSource2 = bodyPenetrationMessage.BodyShapeSource
-              Normal = -bodyPenetrationMessage.Normal }
-        let integrationMessage = BodyPenetrationMessage bodyPenetrationMessage2
-        integrationMessages.Add integrationMessage
         true
 
     static member private handleSeparation
@@ -492,7 +486,7 @@ type [<ReferenceEquality>] PhysicsEngine2d =
                         (PhysicsEngine2d.toPhysicsV2 applyBodyForceMessage.Force,
                          PhysicsEngine2d.toPhysicsV2 originWorld)
                 | None ->
-                    body.ApplyLinearImpulse
+                    body.ApplyForce
                         (PhysicsEngine2d.toPhysicsV2 applyBodyForceMessage.Force)
             else Log.info ("Applying invalid force '" + scstring applyBodyForceMessage.Force + "'; this may destabilize Aether.")
         | (false, _) -> ()

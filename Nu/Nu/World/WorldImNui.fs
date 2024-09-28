@@ -26,6 +26,9 @@ type BodyResult =
 [<AutoOpen>]
 module WorldImNui =
 
+    /// Instructs ImNui static equality (.=) to act as dynamic equality (@=) for a frame.
+    let mutable internal Reinitializing = false
+
     /// Specifies a dynamic ImNui argument.
     let
 #if !DEBUG
@@ -67,8 +70,11 @@ module WorldImNui =
                 | (true, gameImNui) -> (false, World.utilizeSimulantImNui game gameImNui world)
                 | (false, _) ->
                     let world = World.addSimulantImNui game { Utilized = true; Result = zero } world
-                    let mapResult = fun (mapper : 'r -> 'r) world -> World.mapSimulantImNui (fun gameImNui -> { gameImNui with Result = mapper (gameImNui.Result :?> 'r) }) game world
+                    let mapResult (mapper : 'r -> 'r) world =
+                        let mapGameImNui gameImNui = { gameImNui with Result = mapper (gameImNui.Result :?> 'r) }
+                        World.tryMapSimulantImNui mapGameImNui game world
                     (true, init mapResult game world)
+            let initializing = initializing || Reinitializing
             let world =
                 Seq.fold
                     (fun world arg ->
@@ -116,25 +122,24 @@ module WorldImNui =
                 | (true, screenImNui) -> (false, World.utilizeSimulantImNui screen screenImNui world)
                 | (false, _) ->
                     let world = World.addSimulantImNui screen { Utilized = true; Result = (FQueue.empty<ScreenResult>, zero) } world
-                    let mapFstResult =
-                        fun (mapper : ScreenResult FQueue -> ScreenResult FQueue) world ->
-                            World.mapSimulantImNui (fun screenImNui ->
-                                let (screenResult, userResult) = screenImNui.Result :?> ScreenResult FQueue * 'r
-                                { screenImNui with Result = (mapper screenResult, userResult) })
-                                screen world
+                    let mapFstResult (mapper : ScreenResult FQueue -> ScreenResult FQueue) world =
+                        let mapScreenImNui screenImNui =
+                            let (screenResult, userResult) = screenImNui.Result :?> ScreenResult FQueue * 'r
+                            { screenImNui with Result = (mapper screenResult, userResult) }
+                        World.tryMapSimulantImNui mapScreenImNui screen world
                     let world = World.monitor (fun _ world -> (Cascade, mapFstResult (FQueue.conj Select) world)) screen.SelectEvent screen world
                     let world = World.monitor (fun _ world -> (Cascade, mapFstResult (FQueue.conj IncomingStart) world)) screen.IncomingStartEvent screen world
                     let world = World.monitor (fun _ world -> (Cascade, mapFstResult (FQueue.conj IncomingFinish) world)) screen.IncomingFinishEvent screen world
                     let world = World.monitor (fun _ world -> (Cascade, mapFstResult (FQueue.conj OutgoingStart) world)) screen.OutgoingStartEvent screen world
                     let world = World.monitor (fun _ world -> (Cascade, mapFstResult (FQueue.conj OutgoingFinish) world)) screen.OutgoingFinishEvent screen world
                     let world = World.monitor (fun _ world -> (Cascade, mapFstResult (FQueue.conj Deselecting) world)) screen.DeselectingEvent screen world
-                    let mapSndResult =
-                        fun (mapper : 'r -> 'r) world ->
-                            World.mapSimulantImNui (fun screenImNui ->
-                                let (screenResult, userResult) = screenImNui.Result :?> ScreenResult FQueue * 'r
-                                { screenImNui with Result = (screenResult, mapper userResult) })
-                                screen world
+                    let mapSndResult (mapper : 'r -> 'r) world =
+                        let mapScreenImNui screenImNui =
+                            let (screenResult, userResult) = screenImNui.Result :?> ScreenResult FQueue * 'r
+                            { screenImNui with Result = (screenResult, mapper userResult) }
+                        World.tryMapSimulantImNui mapScreenImNui screen world
                     (true, init mapSndResult screen world)
+            let initializing = initializing || Reinitializing
             let world =
                 Seq.fold
                     (fun world arg ->
@@ -190,8 +195,11 @@ module WorldImNui =
                 | (true, groupImNui) -> (false, World.utilizeSimulantImNui group groupImNui world)
                 | (false, _) ->
                     let world = World.addSimulantImNui group { Utilized = true; Result = () } world
-                    let mapResult = fun (mapper : 'r -> 'r) world -> World.mapSimulantImNui (fun groupImNui -> { groupImNui with Result = mapper (groupImNui.Result :?> 'r) }) group world
+                    let mapResult (mapper : 'r -> 'r) world =
+                        let mapGroupImNui groupImNui = { groupImNui with Result = mapper (groupImNui.Result :?> 'r) }
+                        World.tryMapSimulantImNui mapGroupImNui group world
                     (true, init mapResult group world)
+            let initializing = initializing || Reinitializing
             let world =
                 Seq.fold
                     (fun world arg ->
@@ -258,8 +266,11 @@ module WorldImNui =
                 | (true, entityImNui) -> (false, World.utilizeSimulantImNui entity entityImNui world)
                 | (false, _) ->
                     let world = World.addSimulantImNui entity { Utilized = true; Result = zero } world
-                    let mapResult = fun (mapper : 'r -> 'r) world -> World.mapSimulantImNui (fun entityImNui -> { entityImNui with Result = mapper (entityImNui.Result :?> 'r) }) entity world
+                    let mapResult (mapper : 'r -> 'r) world =
+                        let mapEntityImNui entityImNui = { entityImNui with Result = mapper (entityImNui.Result :?> 'r) }
+                        World.tryMapSimulantImNui mapEntityImNui entity world
                     (true, init mapResult entity world)
+            let initializing = initializing || Reinitializing
             let world =
                 Seq.fold
                     (fun world arg ->
