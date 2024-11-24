@@ -78,10 +78,6 @@ module WorldScreenModule =
             World.getScreenProperty propertyName this world
 
         /// Get an xtension property value.
-        member this.TryGet<'a> propertyName world : 'a =
-            World.tryGetScreenXtensionValue<'a> propertyName this world
-
-        /// Get an xtension property value.
         member this.Get<'a> propertyName world : 'a =
             World.getScreenXtensionValue<'a> propertyName this world
 
@@ -101,7 +97,7 @@ module WorldScreenModule =
         /// Set an xtension property value.
         member this.Set<'a> propertyName (value : 'a) world =
             let property = { PropertyType = typeof<'a>; PropertyValue = value }
-            World.setScreenXtensionProperty propertyName property this world
+            World.setScreenXtensionProperty propertyName property this world |> snd'
 
         /// Check that a screen is in an idling state (not transitioning in nor out).
         member this.GetIdling world =
@@ -132,12 +128,6 @@ module WorldScreenModule =
         member this.NotifyModelChange world = World.notifyScreenModelChange this world
 
     type World with
-
-        static member internal tryRunScreen (screen : Screen) world =
-
-            // attempt to run via dispatcher
-            let dispatcher = World.getScreenDispatcher screen world
-            dispatcher.TryRun (screen, world)
 
         static member internal preUpdateScreen (screen : Screen) world =
 
@@ -195,7 +185,7 @@ module WorldScreenModule =
             match simulants.TryGetValue (Game.Handle :> Simulant) with
             | (true, screensOpt) ->
                 match screensOpt with
-                | Some screens -> screens |> Seq.map cast<Screen>
+                | Some screens -> Seq.map cast<Screen> screens
                 | None -> Seq.empty
             | (false, _) -> Seq.empty
 
@@ -240,7 +230,7 @@ module WorldScreenModule =
                     else failwith ("Screen '" + scstring screen + "' already exists and cannot be created."); world
                 else world
             let world = World.addScreen false screenState screen world
-            let world = if WorldModule.UpdatingSimulants then World.tryRunScreen screen world else world
+            let world = if WorldModule.UpdatingSimulants then WorldModule.tryProcessScreen screen world else world
             (screen, world)
 
         /// Create a screen from a simulant descriptor.
@@ -335,8 +325,8 @@ module WorldScreenModule =
             // read the screen's groups
             let world = World.readGroups screenDescriptor.GroupDescriptors screen world |> snd
 
-            // attempt to ImNui run screen first time if in the middle of simulant update phase
-            let world = if WorldModule.UpdatingSimulants then World.tryRunScreen screen world else world
+            // attempt to process ImNui screen first time if in the middle of simulant update phase
+            let world = if WorldModule.UpdatingSimulants then WorldModule.tryProcessScreen screen world else world
             (screen, world)
 
         /// Read multiple screens from a game descriptor.
@@ -375,16 +365,16 @@ module WorldScreenModule =
                 | NavShape.BoundsNavShape -> Left bounds
                 | NavShape.StaticModelSurfaceNavShape ->
                     match Metadata.tryGetStaticModelMetadata staticModel with
-                    | Some physicallyBasedModel ->
+                    | ValueSome physicallyBasedModel ->
                         if surfaceIndex >= 0 && surfaceIndex < physicallyBasedModel.Surfaces.Length then
                             Right (bounds, affineMatrix, physicallyBasedModel.Surfaces.[surfaceIndex])
-                    | None -> ()
+                    | ValueNone -> ()
                 | NavShape.StaticModelNavShape ->
                     match Metadata.tryGetStaticModelMetadata staticModel with
-                    | Some physicallyBasedModel ->
+                    | ValueSome physicallyBasedModel ->
                         for surface in physicallyBasedModel.Surfaces do
                             Right (bounds, affineMatrix, surface)
-                    | None -> ()]
+                    | ValueNone -> ()]
 
         static member internal tryBuildNav3dMesh contents config =
 

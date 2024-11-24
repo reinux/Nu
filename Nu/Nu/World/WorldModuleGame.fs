@@ -11,6 +11,7 @@ open Prime
 module WorldModuleGame =
 
     /// Dynamic property getters / setters.
+    /// TODO: make these FrozenDictionaries.
     let private GameGetters = Dictionary<string, Game -> World -> Property> StringComparer.Ordinal
     let private GameSetters = Dictionary<string, Property -> Game -> World -> struct (bool * World)> StringComparer.Ordinal
 
@@ -29,6 +30,10 @@ module WorldModuleGame =
         static member internal setGameState gameState game world =
             ignore<Game> game
             World.choose { world with GameState = gameState }
+
+        static member internal getGameXtensionProperties game world =
+            let gameState = World.getGameState game world
+            gameState.Xtension |> Xtension.toSeq |> Seq.toList
 
         static member internal getGameId game world = (World.getGameState game world).Id
         static member internal getGameOrder game world = (World.getGameState game world).Order
@@ -68,9 +73,9 @@ module WorldModuleGame =
                     gameState.Model <- { DesignerType = typeof<'a>; DesignerValue = model }
                     model
                 with _ ->
-                    Log.warn "Could not convert existing game model value to new type; using fallback model value instead."
+                    Log.warn "Could not convert existing game model value to new type; attempting to use fallback model value instead."
                     match gameState.Dispatcher.TryGetFallbackModel<'a> (modelSymbol, game, world) with
-                    | None -> failwithnie ()
+                    | None -> typeof<'a>.GetDefaultValue () :?> 'a
                     | Some model ->
                         gameState.Model <- { DesignerType = typeof<'a>; DesignerValue = model }
                         model
@@ -408,10 +413,10 @@ module WorldModuleGame =
         /// Check that the given bounds is within the 3d eye's sight (or a light probe / light in the light box that may be lighting something within it).
         static member boundsInView3d lightProbe light presence (bounds : Box3) world =
             Presence.intersects3d
-                (Some (World.getGameEye3dFrustumInterior Game.Handle world))
+                (ValueSome (World.getGameEye3dFrustumInterior Game.Handle world))
                 (World.getGameEye3dFrustumExterior Game.Handle world)
                 (World.getGameEye3dFrustumImposter Game.Handle world)
-                (Some (World.getLight3dBox world))
+                (ValueSome (World.getLight3dBox world))
                 lightProbe light presence bounds
 
         /// Check that the given bounds is within the 3d eye's play bounds.
@@ -438,16 +443,6 @@ module WorldModuleGame =
         static member internal tryGetGameXtensionProperty (propertyName, game, world, property : _ outref) =
             GameState.tryGetProperty (propertyName, World.getGameState game world, &property)
 
-        static member internal tryGetGameXtensionValue<'a> propertyName game world =
-            let gameState = World.getGameState game world
-            let mutable property = Unchecked.defaultof<Property>
-            if GameState.tryGetProperty (propertyName, gameState, &property) then
-                match property.PropertyValue with
-                | :? 'a as value -> value
-                | null -> null :> obj :?> 'a
-                | valueObj -> valueObj |> valueToSymbol |> symbolToValue
-            else Unchecked.defaultof<'a>
-
         static member internal getGameXtensionProperty propertyName game world =
             let mutable property = Unchecked.defaultof<_>
             match GameState.tryGetProperty (propertyName, World.getGameState game world, &property) with
@@ -456,11 +451,25 @@ module WorldModuleGame =
 
         static member internal getGameXtensionValue<'a> propertyName game world =
             let gameState = World.getGameState game world
-            let property = GameState.getProperty propertyName gameState
-            match property.PropertyValue with
-            | :? 'a as value -> value
-            | null -> null :> obj :?> 'a
-            | valueObj -> valueObj |> valueToSymbol |> symbolToValue
+            let mutable property = Unchecked.defaultof<_>
+            if GameState.tryGetProperty (propertyName, gameState, &property) then
+                match property.PropertyValue with
+                | :? 'a as value -> value
+                | null -> null :> obj :?> 'a
+                | valueObj -> valueObj |> valueToSymbol |> symbolToValue
+            else
+                let definitions = Reflection.getPropertyDefinitions (getType gameState.Dispatcher)
+                let value =
+                    match List.tryFind (fun (pd : PropertyDefinition) -> pd.PropertyName = propertyName) definitions with
+                    | Some definition ->
+                        match definition.PropertyExpr with
+                        | DefineExpr value -> value :?> 'a
+                        | VariableExpr _ -> failwith "GameDispatchers do not support variable properties."
+                        | ComputedExpr _ -> failwith "GameDispatchers do not support computed properties."
+                    | None -> failwithumf ()
+                let property = { PropertyType = typeof<'a>; PropertyValue = value }
+                gameState.Xtension <- Xtension.attachProperty propertyName property gameState.Xtension
+                value
 
         static member internal tryGetGameProperty (propertyName, game, world, property : _ outref) =
             match GameGetters.TryGetValue propertyName with

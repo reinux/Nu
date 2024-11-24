@@ -44,25 +44,25 @@ type HeightMap =
                 let metadata = textureData.Metadata
                 let (blockCompressed, bytes) = textureData.Bytes
                 textureData.Dispose ()
-                Some (metadata, blockCompressed, bytes)
-            | None -> None
-        | None -> None
+                ValueSome (metadata, blockCompressed, bytes)
+            | None -> ValueNone
+        | None -> ValueNone
 
     static member private tryGetRawAssetData tryGetAssetFilePath (assetTag : Raw AssetTag) =
         match tryGetAssetFilePath assetTag with
         | Some filePath ->
             try let bytes = File.ReadAllBytes filePath
-                Some bytes
+                ValueSome bytes
             with exn ->
                 Log.info ("Could not load texture '" + filePath + "' due to: " + scstring exn)
-                None
-        | None -> None
+                ValueNone
+        | None -> ValueNone
 
     static member private tryGetImageHeightMapMetadata tryGetAssetFilePath (bounds : Box3) tiles image =
 
         // attempt to load texture data
         match HeightMap.tryGetTextureData tryGetAssetFilePath image with
-        | Some (metadata, blockCompressed, bytes) ->
+        | ValueSome (metadata, blockCompressed, bytes) ->
 
             // currently only supporting height data from block-compressed files
             if not blockCompressed then
@@ -95,15 +95,15 @@ type HeightMap =
                             struct (position, texCoords)|]
 
                 // fin
-                Some { Resolution = v2i resolutionX resolutionY; HeightsNormalized = heightsNormalized; PositionsAndTexCoordses = positionsAndTexCoordses }
-            else Log.info "Block-compressed image files are unsupported for use as height maps."; None
-        | None -> None
+                ValueSome { Resolution = v2i resolutionX resolutionY; HeightsNormalized = heightsNormalized; PositionsAndTexCoordses = positionsAndTexCoordses }
+            else Log.info "Block-compressed image files are unsupported for use as height maps."; ValueNone
+        | ValueNone -> ValueNone
 
     static member private tryGetRawHeightMapMetadata tryGetAssetFilePath (bounds : Box3) tiles map =
 
         // ensure raw asset exists
         match HeightMap.tryGetRawAssetData tryGetAssetFilePath map.RawAsset with
-        | Some rawAsset ->
+        | ValueSome rawAsset ->
 
             try // read normalized heights
                 let resolutionX = map.Resolution.X
@@ -158,9 +158,9 @@ type HeightMap =
                             struct (position, texCoords)|]
 
                 // fin
-                Some { Resolution = v2i resolutionX resolutionY; HeightsNormalized = heightsNormalized; PositionsAndTexCoordses = positionsAndTexCoordses }
-            with exn -> Log.infoOnce ("Attempt to read raw height map failed with the following exception: " + exn.Message); None
-        | None -> None
+                ValueSome { Resolution = v2i resolutionX resolutionY; HeightsNormalized = heightsNormalized; PositionsAndTexCoordses = positionsAndTexCoordses }
+            with exn -> Log.infoOnce ("Attempt to read raw height map failed with the following exception: " + exn.Message); ValueNone
+        | ValueNone -> ValueNone
 
     /// Attempt to compute height map metadata, loading assets as required.
     /// NOTE: if the heightmap pixel represents a quad in the terrain geometry in the exporting program, the geometry
@@ -373,6 +373,20 @@ type BodyShape =
             | _ -> false
         else true
 
+/// Describes a physics body intersection, such as found from a ray cast.
+type [<Struct>] BodyIntersection =
+    { BodyShapeIntersected : BodyShapeIndex
+      Progress : single
+      Position : Vector3
+      Normal : Vector3 }
+
+    /// Make a ray intersesction value.
+    static member make bodyShapeIntersected progress position normal =
+        { BodyShapeIntersected = bodyShapeIntersected
+          Progress = progress
+          Position = position
+          Normal = normal }
+
 /// The type of a physics body.
 [<Syntax
     ("", "", "", "", "",
@@ -410,13 +424,13 @@ type [<SymbolicExpansion>] CharacterProperties =
 
 /// The properties needed to describe the physical part of a body.
 type BodyProperties =
-    { Center : Vector3
+    { Enabled : bool
+      Center : Vector3
       Rotation : Quaternion
       Scale : Vector3
       BodyType : BodyType
       BodyShape : BodyShape
       SleepingAllowed : bool
-      Enabled : bool
       Friction : single
       Restitution : single
       LinearVelocity : Vector3
@@ -733,7 +747,7 @@ type PhysicsEngine =
     /// Check that the body with the given physics id is on the ground.
     abstract GetBodyGrounded : BodyId -> bool
     /// Cast a ray into the physics bodies.
-    abstract RayCast : Vector3 * Vector3 * int * int * bool -> (Vector3 * Vector3 * single * BodyShapeIndex * BodyId) array
+    abstract RayCast : Vector3 * Vector3 * int * int * bool -> BodyIntersection array
     /// Handle a physics message from an external source.
     abstract HandleMessage : PhysicsMessage -> unit
     /// Attempt to integrate the physics system one step.

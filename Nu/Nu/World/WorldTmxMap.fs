@@ -138,8 +138,8 @@ module TmxMap =
 
     let tryGetTileMap (tileMapAsset : TileMap AssetTag) =
         match Metadata.tryGetTileMapMetadata tileMapAsset with
-        | Some tileMapMetadata -> Some tileMapMetadata.TileMap
-        | None -> None
+        | ValueSome tileMapMetadata -> Some tileMapMetadata.TileMap
+        | ValueNone -> None
 
     let tryGetTileDescriptor tileIndex (tl : TmxLayer) tmd (tileDescriptor : TileDescriptor outref) =
         let tileMapRun = tmd.TileMapSizeM.X
@@ -296,13 +296,13 @@ module TmxMap =
 
     let getBodyProperties enabled friction restitution collisionCategories collisionMask observable bodyIndex tileMapDescriptor =
         let bodyProperties =
-            { Center = v3Zero
+            { Enabled = enabled
+              Center = v3Zero
               Rotation = quatIdentity
               Scale = v3One
               BodyShape = BodyShapes (getBodyShapes tileMapDescriptor)
               BodyType = BodyType.Static
               SleepingAllowed = true
-              Enabled = enabled
               Friction = friction
               Restitution = restitution
               LinearVelocity = v3Zero

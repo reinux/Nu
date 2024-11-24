@@ -8,7 +8,7 @@ open Prime
 open Nu
 
 /// Logical operations that can be applied to an effect behavior.
-type LogicApplicator =
+type [<Struct>] LogicApplicator =
     | Or
     | Nor
     | Xor
@@ -17,7 +17,7 @@ type LogicApplicator =
     | Equal
 
 /// Algorithms for tweening (interpolating) effect behavior.
-type TweenAlgorithm =
+type [<Struct>] TweenAlgorithm =
     | Constant
     | Linear
     | Random
@@ -26,12 +26,12 @@ type TweenAlgorithm =
     | EaseIn
     | EaseOut
     | Sin
-    | SinScaled of single
+    | SinScaled of Scalar : single
     | Cos
-    | CosScaled of single
+    | CosScaled of Scalar : single
 
 /// The manners in which to apply tweening to effect values.
-type TweenApplicator =
+type [<Struct>] TweenApplicator =
     | Sum
     | Delta
     | Scalar
@@ -132,12 +132,12 @@ type Tween2IKeyFrame =
         member this.KeyFrameLength = this.TweenLength
 
 /// Represents a rate of progress for an effect behavior.
-type Rate =
-    Rate of single
+type [<Struct>] Rate =
+    Rate of Rate : single
 
 /// Represents a shift (offset) of an effect value.
-type Shift =
-    Shift of single
+type [<Struct>] Shift =
+    Shift of Shift : single
 
 /// Represents a resource used in effect content.
 type Resource =
@@ -698,7 +698,8 @@ module EffectSystem =
                       FontSizing = fontSizing
                       FontStyling = fontStyling
                       Color = slice.Color
-                      Justification = Justified (JustifyCenter, JustifyMiddle) }
+                      Justification = Justified (JustifyCenter, JustifyMiddle)
+                      CursorOpt = None }
                 let textToken = TextToken (transform.Elevation, transform.Horizon, font, text)
                 addDataToken textToken effectSystem
             else effectSystem
@@ -756,27 +757,26 @@ module EffectSystem =
                 let affineMatrix = Matrix4x4.CreateFromTrs (slice.Position, slice.Angles.RollPitchYaw, slice.Scale)
                 let insetOpt = if slice.Inset.Equals box2Zero then None else Some slice.Inset
                 let properties =
-                    { AlbedoOpt = Some slice.Color
-                      RoughnessOpt = None
-                      MetallicOpt = None
-                      AmbientOcclusionOpt = None
-                      EmissionOpt = Some slice.Emission.R
-                      HeightOpt = Some slice.Height
-                      IgnoreLightMapsOpt = Some slice.IgnoreLightMaps
-                      OpaqueDistanceOpt = None }
+                    { AlbedoOpt = ValueSome slice.Color
+                      RoughnessOpt = ValueNone
+                      MetallicOpt = ValueNone
+                      AmbientOcclusionOpt = ValueNone
+                      EmissionOpt = ValueSome slice.Emission.R
+                      HeightOpt = ValueSome slice.Height
+                      IgnoreLightMapsOpt = ValueSome slice.IgnoreLightMaps
+                      OpaqueDistanceOpt = ValueNone }
                 let material =
-                    { AlbedoImageOpt = Some (AssetTag.specialize<Image> imageAlbedo)
-                      RoughnessImageOpt = Some (AssetTag.specialize<Image> imageRoughness)
-                      MetallicImageOpt = Some (AssetTag.specialize<Image> imageMetallic)
-                      AmbientOcclusionImageOpt = Some (AssetTag.specialize<Image> imageAmbientOcclusion)
-                      EmissionImageOpt = Some (AssetTag.specialize<Image> imageEmission)
-                      NormalImageOpt = Some (AssetTag.specialize<Image> imageNormal)
-                      HeightImageOpt = Some (AssetTag.specialize<Image> imageHeight)
-                      TwoSidedOpt = Some twoSided }
+                    { AlbedoImageOpt = ValueSome (AssetTag.specialize<Image> imageAlbedo)
+                      RoughnessImageOpt = ValueSome (AssetTag.specialize<Image> imageRoughness)
+                      MetallicImageOpt = ValueSome (AssetTag.specialize<Image> imageMetallic)
+                      AmbientOcclusionImageOpt = ValueSome (AssetTag.specialize<Image> imageAmbientOcclusion)
+                      EmissionImageOpt = ValueSome (AssetTag.specialize<Image> imageEmission)
+                      NormalImageOpt = ValueSome (AssetTag.specialize<Image> imageNormal)
+                      HeightImageOpt = ValueSome (AssetTag.specialize<Image> imageHeight)
+                      TwoSidedOpt = ValueSome twoSided }
                 let billboardToken =
                     BillboardToken
-                        { Absolute = effectSystem.EffectAbsolute
-                          ModelMatrix = affineMatrix
+                        { ModelMatrix = affineMatrix
                           Presence = effectSystem.EffectPresence
                           InsetOpt = insetOpt
                           MaterialProperties = properties
@@ -804,18 +804,17 @@ module EffectSystem =
                 let affineMatrix = Matrix4x4.CreateFromTrs (slice.Position, slice.Angles.RollPitchYaw, slice.Scale)
                 let insetOpt = if slice.Inset.Equals box2Zero then None else Some slice.Inset
                 let properties =
-                    { AlbedoOpt = Some slice.Color
-                      RoughnessOpt = None
-                      MetallicOpt = None
-                      AmbientOcclusionOpt = None
-                      EmissionOpt = Some slice.Emission.R
-                      HeightOpt = Some slice.Height
-                      IgnoreLightMapsOpt = Some slice.IgnoreLightMaps
-                      OpaqueDistanceOpt = None }
+                    { AlbedoOpt = ValueSome slice.Color
+                      RoughnessOpt = ValueNone
+                      MetallicOpt = ValueNone
+                      AmbientOcclusionOpt = ValueNone
+                      EmissionOpt = ValueSome slice.Emission.R
+                      HeightOpt = ValueSome slice.Height
+                      IgnoreLightMapsOpt = ValueSome slice.IgnoreLightMaps
+                      OpaqueDistanceOpt = ValueNone }
                 let staticModelToken =
                     StaticModelToken
-                        { Absolute = effectSystem.EffectAbsolute
-                          ModelMatrix = affineMatrix
+                        { ModelMatrix = affineMatrix
                           Presence = effectSystem.EffectPresence
                           InsetOpt = insetOpt
                           MaterialProperties = properties

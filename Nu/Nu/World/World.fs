@@ -73,7 +73,10 @@ type Nu () =
             WorldModule.unregisterScreenPhysics <- fun only3dHack screen world -> World.unregisterScreenPhysics only3dHack screen world
             WorldModule.register <- fun simulant world -> World.register simulant world
             WorldModule.unregister <- fun simulant world -> World.unregister simulant world
-            WorldModule.tryRunEntity <- fun entity world -> World.tryRunEntity entity world
+            WorldModule.tryProcessGame <- fun game world -> World.tryProcessGame game world
+            WorldModule.tryProcessScreen <- fun screen world -> World.tryProcessScreen screen world
+            WorldModule.tryProcessGroup <- fun group world -> World.tryProcessGroup group world
+            WorldModule.tryProcessEntity <- fun entity world -> World.tryProcessEntity entity world
             WorldModule.signal <- Nu.worldModuleSignal
             WorldModule.destroyImmediate <- fun simulant world -> World.destroyImmediate simulant world
             WorldModule.destroy <- fun simulant world -> World.destroy simulant world
@@ -139,6 +142,7 @@ module WorldModule3 =
                  RadioButtonDispatcher ()
                  FillBarDispatcher ()
                  FeelerDispatcher ()
+                 TextBoxDispatcher ()
                  FpsDispatcher ()
                  PanelDispatcher ()
                  BasicStaticSpriteEmitterDispatcher ()
@@ -187,6 +191,7 @@ module WorldModule3 =
                  RadioButtonFacet ()
                  FillBarFacet ()
                  FeelerFacet ()
+                 TextBoxFacet ()
                  BasicStaticSpriteEmitterFacet ()
                  EffectFacet ()
                  RigidBodyFacet ()
@@ -279,8 +284,8 @@ module WorldModule3 =
             let worldExtension =
                 { ContextImNui = Address.empty
                   RecentImNui = Address.empty
-                  SimulantImNuis = OMap.makeEmpty HashIdentity.Structural config
-                  SubscriptionImNuis = OMap.makeEmpty HashIdentity.Structural config
+                  SimulantImNuis = SUMap.makeEmpty HashIdentity.Structural config
+                  SubscriptionImNuis = SUMap.makeEmpty HashIdentity.Structural config
                   DestructionListRev = []
                   Dispatchers = dispatchers
                   Plugin = plugin
@@ -330,7 +335,7 @@ module WorldModule3 =
                   GameDispatchers = Map.ofList [defaultGameDispatcher] }
 
             // make the world's subsystems
-            let imGui = ImGui (Constants.Render.Resolution.X, Constants.Render.Resolution.Y)
+            let imGui = ImGui (true, Constants.Render.Resolution.X, Constants.Render.Resolution.Y)
             let physicsEngine2d = StubPhysicsEngine.make ()
             let physicsEngine3d = StubPhysicsEngine.make ()
             let rendererProcess = RendererInline () :> RendererProcess
@@ -410,7 +415,7 @@ module WorldModule3 =
                     | None -> GameDispatcher ()
 
                 // make the world's subsystems, loading initial packages where applicable
-                let imGui = ImGui (Constants.Render.Resolution.X, Constants.Render.Resolution.Y)
+                let imGui = ImGui (false, Constants.Render.Resolution.X, Constants.Render.Resolution.Y)
                 let physicsEngine2d = PhysicsEngine2d.make (Constants.Physics.GravityDefault * Constants.Engine.Meter2d)
                 let physicsEngine3d = PhysicsEngine3d.make Constants.Physics.GravityDefault
                 let rendererProcess =

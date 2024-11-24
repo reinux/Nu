@@ -77,16 +77,16 @@ module WorldRender =
             for message in messages do rendererProcess.EnqueueMessage3d message
 
         /// Send a message to the render system to render a static model using a fast path.
-        static member renderStaticModelFast (absolute, modelMatrix : Matrix4x4 inref, presence, insetOpt, materialProperties : MaterialProperties inref, staticModel, renderType, renderPass, world) =
-            (World.getRendererProcess world).RenderStaticModelFast (absolute, &modelMatrix, presence, insetOpt, &materialProperties, staticModel, renderType, renderPass)
+        static member renderStaticModelFast (modelMatrix : Matrix4x4 inref, presence, insetOpt, materialProperties : MaterialProperties inref, staticModel, renderType, renderPass, world) =
+            (World.getRendererProcess world).RenderStaticModelFast (&modelMatrix, presence, insetOpt, &materialProperties, staticModel, renderType, renderPass)
 
         /// Send a message to the render system to render a static model surface using a fast path.
-        static member renderStaticModelSurfaceFast (absolute, modelMatrix : Matrix4x4 inref, presence, insetOpt, materialProperties : MaterialProperties inref, material : Material inref, staticModel, surfaceIndex, renderType, renderPass, world) =
-            (World.getRendererProcess world).RenderStaticModelSurfaceFast (absolute, &modelMatrix, presence, insetOpt, &materialProperties, &material, staticModel, surfaceIndex, renderType, renderPass)
+        static member renderStaticModelSurfaceFast (modelMatrix : Matrix4x4 inref, presence, insetOpt, materialProperties : MaterialProperties inref, material : Material inref, staticModel, surfaceIndex, renderType, renderPass, world) =
+            (World.getRendererProcess world).RenderStaticModelSurfaceFast (&modelMatrix, presence, insetOpt, &materialProperties, &material, staticModel, surfaceIndex, renderType, renderPass)
 
         /// Send a message to the render system to render an animated model using a fast path.
-        static member renderAnimatedModelFast (absolute, modelMatrix : Matrix4x4 inref, presence, insetOpt, materialProperties : MaterialProperties inref, animations, animatedModel, renderPass, world) =
-            (World.getRendererProcess world).RenderAnimatedModelFast (absolute, &modelMatrix, presence, insetOpt, &materialProperties, animations, animatedModel, renderPass)
+        static member renderAnimatedModelFast (modelMatrix : Matrix4x4 inref, presence, insetOpt, materialProperties : MaterialProperties inref, animations, animatedModel, renderPass, world) =
+            (World.getRendererProcess world).RenderAnimatedModelFast (&modelMatrix, presence, insetOpt, &materialProperties, animations, animatedModel, renderPass)
 
         /// Load a 3d render asset package. Should be used to avoid loading assets at inconvenient times (such as in the
         /// middle of game play!)
@@ -120,9 +120,10 @@ module WorldRender =
         /// Render a gui sprite.
         static member renderGuiSprite absolute perimeter spriteImage offset elevation color world =
             let mutable spriteTransform = Transform.makePerimeter absolute perimeter offset elevation // out-of-box gui ignores rotation
-            let descriptor = { Transform = spriteTransform; InsetOpt = ValueNone; ClipOpt = ValueSome perimeter.Box2; Image = spriteImage; Color = color; Blend = Transparent; Emission = Color.Zero; Flip = FlipNone }
-            let operation = { Elevation = spriteTransform.Elevation; Horizon = spriteTransform.Horizon; AssetTag = spriteImage; RenderOperation2d = RenderSprite descriptor }
-            World.enqueueLayeredOperation2d operation world
+            let insetOpt = ValueOption<Box2>.None
+            let perimeter = ValueSome perimeter.Box2
+            let blend = Color.Zero
+            World.renderLayeredSpriteFast (spriteTransform.Elevation, spriteTransform.Horizon, spriteImage, &spriteTransform, &insetOpt, &perimeter, spriteImage, &color, Transparent, &blend, FlipNone, world)
 
         /// Render a gui sprite with 9-way slicing.
         static member renderGuiSpriteSliced absolute perimeter margin spriteImage offset elevation color world =
@@ -131,21 +132,21 @@ module WorldRender =
                     let slice = box3Slice i margin perimeter
                     let insetOpt =
                         match Metadata.tryGetTextureSizeF spriteImage with
-                        | Some imageSize -> ValueSome (box2SliceInverted i margin (box2 v2Zero imageSize))
-                        | None -> ValueNone
+                        | ValueSome imageSize -> ValueSome (box2SliceInverted i margin (box2 v2Zero imageSize))
+                        | ValueNone -> ValueNone
                     let mutable spriteTransform = Transform.makePerimeter absolute slice offset elevation // out-of-box gui ignores rotation
-                    let descriptor = { Transform = spriteTransform; InsetOpt = insetOpt; ClipOpt = ValueSome perimeter.Box2; Image = spriteImage; Color = color; Blend = Transparent; Emission = Color.Zero; Flip = FlipNone }
-                    let operation = { Elevation = spriteTransform.Elevation; Horizon = spriteTransform.Horizon; AssetTag = spriteImage; RenderOperation2d = RenderSprite descriptor }
-                    World.enqueueLayeredOperation2d operation world
+                    let perimeter = ValueSome perimeter.Box2
+                    let blend = Color.Zero
+                    World.renderLayeredSpriteFast (spriteTransform.Elevation, spriteTransform.Horizon, spriteImage, &spriteTransform, &insetOpt, &perimeter, spriteImage, &color, Transparent, &blend, FlipNone, world)
             else World.renderGuiSprite absolute perimeter spriteImage offset elevation color world
 
-        static member renderGuiText absolute (perimeter : Box3) offset elevation shift clipOpt justification textMargin color font fontSizing fontStyling text world =
-            if not (String.IsNullOrWhiteSpace text) then
+        static member renderGuiText absolute (perimeter : Box3) offset elevation shift clipOpt justification cursorOpt textMargin color font fontSizing fontStyling text world =
+            if not (String.IsNullOrWhiteSpace text) || Option.isSome cursorOpt then
                 let mutable textTransform = Transform.makeDefault ()
                 textTransform.Position <- perimeter.Center + textMargin + offset // out-of-box gui ignores rotation and scale
                 textTransform.Size <- perimeter.Size - textMargin * 2.0f
                 textTransform.Elevation <- elevation + shift
                 textTransform.Absolute <- absolute
-                let descriptor = { Transform = textTransform; ClipOpt = clipOpt; Text = text; Font = font; FontSizing = fontSizing; FontStyling = fontStyling; Color = color; Justification = justification }
+                let descriptor = { Transform = textTransform; ClipOpt = clipOpt; Text = text; Font = font; FontSizing = fontSizing; FontStyling = fontStyling; Color = color; Justification = justification; CursorOpt = cursorOpt }
                 let operation = { Elevation = textTransform.Elevation; Horizon = perimeter.Center.Y; AssetTag = font; RenderOperation2d = RenderText descriptor }
                 World.enqueueLayeredOperation2d operation world

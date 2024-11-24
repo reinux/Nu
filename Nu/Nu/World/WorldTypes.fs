@@ -34,7 +34,7 @@ module internal WorldTypes =
     // EventGraph F# reach-arounds.
     let mutable internal getSelectedScreenIdling : obj -> bool = Unchecked.defaultof<_>
     let mutable internal getSelectedScreenTransitioning : obj -> bool = Unchecked.defaultof<_>
-    let mutable internal handleSubscribeAndUnsubscribeEvent : bool -> obj Address -> Simulant -> obj -> obj = Unchecked.defaultof<_>
+    let mutable internal handleSubscribeAndUnsubscribeEvent : bool -> Address -> Simulant -> obj -> obj = Unchecked.defaultof<_>
 
     // Simulant F# reach-arounds.
     let mutable internal createDefaultGroup : obj -> obj -> obj * obj = Unchecked.defaultof<_>
@@ -183,7 +183,7 @@ and Lens =
         /// Get an optional setter function that updates the property accessed by the lens.
         abstract SetOpt : (obj -> World -> World) voption
         /// Attempt to set the lensed property to the given value.
-        abstract TrySet : obj -> World -> World
+        abstract TrySet : obj -> World -> struct (bool * World)
         /// The change event associated with the lensed property.
         abstract ChangeEvent : ChangeData Address
         /// The type of the lensed property.
@@ -197,15 +197,6 @@ and [<ReferenceEquality>] Lens<'a, 's when 's :> Simulant> =
       This : 's
       Get : World -> 'a
       SetOpt : ('a -> World -> World) voption }
-
-    interface Lens with
-        member this.Name = this.Name
-        member this.This = this.This :> Simulant
-        member this.Get world = this.Get world :> obj
-        member this.SetOpt = ValueOption.map (fun set -> fun (value : obj) world -> set (value :?> 'a) world) this.SetOpt
-        member this.TrySet value world = match this.SetOpt with ValueSome set -> set (value :?> 'a) world | ValueNone -> world
-        member this.ChangeEvent = this.ChangeEvent
-        member this.Type = typeof<'a>
 
     /// Get the lensed value mapped by the `by` function.
     member this.GetBy by world =
@@ -224,46 +215,52 @@ and [<ReferenceEquality>] Lens<'a, 's when 's :> Simulant> =
     /// Set the lensed property to the given value.
     /// Returns the updated world or throws an exception if the lens is readonly.
     member this.Set value world =
-        match this.TrySet value world with
-        | (true, world) -> world
-        | (false, _) -> failwith ("Lens for '" + this.Name + "' is readonly.")
+        match this.SetOpt with
+        | ValueSome setter -> setter value world
+        | ValueNone -> failwith ("Lens for '" + this.Name + "' is readonly.")
 
     /// Attempt to transform the lensed property's value using the given updater function that also receives the world as input.
     member this.TryMapWorld (mapper : 'a -> World -> 'a) world =
-        let value = this.Get world
-        let value' = mapper value world
-        this.TrySet value' world
+        match this.SetOpt with
+        | ValueSome setter -> struct (true, setter (mapper (this.Get world) world) world)
+        | ValueNone -> struct (false, world)
 
     /// Attempt to transform the lensed property's value using the given updater function, optionally updating the world value in the process.
     member this.TryMapEffect (mapper : 'a -> World -> ('a * World)) (world : World) =
-        let value = this.Get world
-        let (value', world) = mapper value world
-        this.TrySet value' world
+        match this.SetOpt with
+        | ValueSome setter ->
+            let (value, world) = mapper (this.Get world) world
+            struct (true, setter value world)
+        | ValueNone -> struct (false, world)
 
     /// Attempt to transform the lensed property's value using the given updater function.
     member this.TryMap (mapper : 'a -> 'a) world =
-        this.TryMapWorld (fun value _ -> mapper value) world
+        match this.SetOpt with
+        | ValueSome setter -> struct (true, setter (mapper (this.Get world)) world)
+        | ValueNone -> struct (false, world)
 
     /// Update the lensed property's value using the given updater function that also receives the world as input.
     /// Returns the updated world or throws an exception if the lens is readonly.
     member this.MapWorld mapper world =
-        match this.TryMapWorld mapper world with
-        | (true, world) -> world
-        | (false, _) -> failwithumf ()
+        match this.SetOpt with
+        | ValueSome setter -> setter (mapper (this.Get world) world) world
+        | ValueNone -> failwithumf ()
 
     /// Update the lensed property's value using the given updater function, optionally updating the world value in the process.
     /// Returns the updated world or throws an exception if the lens is readonly.
     member this.MapEffect mapper world =
-        match this.TryMapEffect mapper world with
-        | (true, world) -> world
-        | (false, _) -> failwithumf ()
+        match this.SetOpt with
+        | ValueSome setter ->
+            let (value, world) = mapper (this.Get world) world
+            setter value world
+        | ValueNone -> failwithumf ()
 
     /// Update the lensed property's value using the given updater function.
     /// Returns the updated world or throws an exception if the lens is readonly.
     member this.Map mapper world =
-        match this.TryMap mapper world with
-        | (true, world) -> world
-        | (false, _) -> failwithumf ()
+        match this.SetOpt with
+        | ValueSome setter -> setter (mapper (this.Get world)) world
+        | ValueNone -> failwithumf ()
 
     /// The change event associated with the lensed property.
     member this.ChangeEvent : ChangeData Address =
@@ -281,46 +278,55 @@ and [<ReferenceEquality>] Lens<'a, 's when 's :> Simulant> =
 
     /// Adds the specified value to the lensed property's value.
     /// Returns the updated world or throws an exception if the lens is readonly.
-    static member inline ( += ) (lens : Lens<_, _>, value) =  lens.Map (flip (+) value)
+    static member inline ( += ) (lens : Lens<_, _>, value) = lens.Map (flip (+) value)
 
     /// Subtracts the specified value from the lensed property's value.
     /// Returns the updated world or throws an exception if the lens is readonly.
-    static member inline ( -= ) (lens : Lens<_, _>, value) =  lens.Map (flip (-) value)
+    static member inline ( -= ) (lens : Lens<_, _>, value) = lens.Map (flip (-) value)
 
     /// Multiplies the lensed property's value.
     /// Returns the updated world or throws an exception if the lens is readonly.
-    static member inline ( *= ) (lens : Lens<_, _>, value) =  lens.Map (flip (*) value)
+    static member inline ( *= ) (lens : Lens<_, _>, value) = lens.Map (flip (*) value)
 
     /// Divides the lensed property's value.
     /// Returns the updated world or throws an exception if the lens is readonly.
-    static member inline ( /= ) (lens : Lens<_, _>, value) =  lens.Map (flip (/) value)
+    static member inline ( /= ) (lens : Lens<_, _>, value) = lens.Map (flip (/) value)
 
     /// Computes the modulus of the lensed property's value.
     /// Returns the updated world or throws an exception if the lens is readonly.
-    static member inline ( %= ) (lens : Lens<_, _>, value) =  lens.Map (flip (%) value)
+    static member inline ( %= ) (lens : Lens<_, _>, value) = lens.Map (flip (%) value)
 
     /// Negates the lensed property's value.
     /// Returns the updated world or throws an exception if the lens is readonly.
-    static member inline ( ~+ ) (lens : Lens<_, _>) =  lens.Map (~+)
+    static member inline ( ~+ ) (lens : Lens<_, _>) = lens.Map (~+)
 
     /// Negates the lensed property's value.
     /// Returns the updated world or throws an exception if the lens is readonly.
-    static member inline ( ~- ) (lens : Lens<_, _>) =  lens.Map (~-)
+    static member inline ( ~- ) (lens : Lens<_, _>) = lens.Map (~-)
 
     /// Increments the lensed property's value.
     /// Returns the updated world or throws an exception if the lens is readonly.
-    static member inline ( !+ ) (lens : Lens<_, _>) =  lens.Map inc
+    static member inline ( !+ ) (lens : Lens<_, _>) = lens.Map inc
 
     /// Decrements the lensed property's value.
     /// Returns the updated world or throws an exception if the lens is readonly.
-    static member inline ( !- ) (lens : Lens<_, _>) =  lens.Map dec
+    static member inline ( !- ) (lens : Lens<_, _>) = lens.Map dec
 
     /// Set a lensed property's value.
     /// Returns the updated world or throws an exception if the lens is readonly.
-    static member inline (<--) (lens : Lens<_, _>, value) = lens.Set value
+    static member inline ( <-- ) (lens : Lens<_, _>, value) = lens.Set value
 
     /// Get a lensed property's value.
-    static member inline (!.) (lens : Lens<_, _>) = fun world -> lens.Get world
+    static member inline ( !. ) (lens : Lens<_, _>) = fun world -> lens.Get world
+
+    interface Lens with
+        member this.Name = this.Name
+        member this.This = this.This :> Simulant
+        member this.Get world = this.Get world :> obj
+        member this.SetOpt = ValueOption.map (fun set -> fun (value : obj) world -> set (value :?> 'a) world) this.SetOpt
+        member this.TrySet value world = match this.SetOpt with ValueSome set -> (true, set (value :?> 'a) world) | ValueNone -> (false, world)
+        member this.ChangeEvent = this.ChangeEvent
+        member this.Type = typeof<'a>
 
 /// A model-message-command-content (MMCC) signal tag type.
 and Signal = interface end
@@ -436,9 +442,9 @@ and GameDispatcher () =
     abstract Unregister : Game * World -> World
     default this.Unregister (_, world) = world
 
-    /// Attempt to ImNui run a game.
-    abstract TryRun : Game * World -> World
-    default this.TryRun (_, world) = world
+    /// Attempt to ImNui process a game.
+    abstract TryProcess : Game * World -> World
+    default this.TryProcess (_, world) = world
 
     /// Pre-update a game.
     abstract PreUpdate : Game * World -> World
@@ -492,9 +498,9 @@ and ScreenDispatcher () =
     abstract Unregister : Screen * World -> World
     default this.Unregister (_, world) = world
 
-    /// Attempt to ImNui run a screen.
-    abstract TryRun : Screen * World -> World
-    default this.TryRun (_, world) = world
+    /// Attempt to ImNui process a screen.
+    abstract TryProcess : Screen * World -> World
+    default this.TryProcess (_, world) = world
 
     /// Pre-update a screen.
     abstract PreUpdate : Screen * World -> World
@@ -552,11 +558,11 @@ and GroupDispatcher () =
 
     /// Unregister a group when removing it from a screen.
     abstract Unregister : Group * World -> World
-
-    /// Attempt to ImNui run a group.
-    abstract TryRun : Group * World -> World
-    default this.TryRun (_, world) = world
     default this.Unregister (_, world) = world
+
+    /// Attempt to ImNui process a group.
+    abstract TryProcess : Group * World -> World
+    default this.TryProcess (_, world) = world
 
     /// Pre-update a group.
     abstract PreUpdate : Group * World -> World
@@ -646,9 +652,9 @@ and EntityDispatcher (is2d, physical, lightProbe, light) =
     abstract Unregister : Entity * World -> World
     default this.Unregister (_, world) = world
 
-    /// Attempt to ImNui run an entity.
-    abstract TryRun : Entity * World -> World
-    default this.TryRun (_, world) = world
+    /// Attempt to ImNui process an entity.
+    abstract TryProcess : Entity * World -> World
+    default this.TryProcess (_, world) = world
 
     /// Update an entity.
     abstract Update : Entity * World -> World
@@ -730,10 +736,6 @@ and Facet (physical, lightProbe, light) =
     /// Participate in the unregistration of an entity's physics from the physics subsystem.
     abstract UnregisterPhysics : Entity * World -> World
     default this.UnregisterPhysics (_, world) = world
-
-    /// Attempt to ImNui run a facet.
-    abstract TryRun : Entity * World -> World
-    default this.TryRun (_, world) = world
 
     /// Update a facet.
     abstract Update : Entity * World -> World
@@ -914,7 +916,7 @@ and SimulantState =
 /// Hosts the ongoing state of a game.
 and [<ReferenceEquality; CLIMutable>] GameState =
     { Dispatcher : GameDispatcher
-      Xtension : Xtension
+      mutable Xtension : Xtension // mutable to allow inserting new properties on code reload
       mutable Model : DesignerProperty // mutable to allow inserting fallback model on code reload
       Content : GameContent
       SelectedScreenOpt : Screen option
@@ -991,7 +993,7 @@ and [<ReferenceEquality; CLIMutable>] GameState =
 /// Hosts the ongoing state of a screen.
 and [<ReferenceEquality; CLIMutable>] ScreenState =
     { Dispatcher : ScreenDispatcher
-      Xtension : Xtension
+      mutable Xtension : Xtension // mutable to allow inserting new properties on code reload
       mutable Model : DesignerProperty // mutable to allow inserting fallback model on code reload
       Content : ScreenContent
       TransitionState : TransitionState
@@ -1062,7 +1064,7 @@ and [<ReferenceEquality; CLIMutable>] ScreenState =
 /// Hosts the ongoing state of a group.
 and [<ReferenceEquality; CLIMutable>] GroupState =
     { Dispatcher : GroupDispatcher
-      Xtension : Xtension
+      mutable Xtension : Xtension // mutable to allow inserting new properties on code reload
       mutable Model : DesignerProperty // mutable to allow inserting fallback model on code reload
       Content : GroupContent
       Visible : bool
@@ -1194,6 +1196,7 @@ and [<ReferenceEquality; CLIMutable>] EntityState =
     member this.Optimized with get () = this.Transform.Optimized
     member internal this.VisibleSpatial with get () = this.Visible || this.AlwaysRender
     member internal this.StaticSpatial with get () = this.Static && not this.AlwaysUpdate
+    member internal this.PresenceSpatial with get () = if this.Absolute then Omnipresent else this.Presence
 
     /// Copy an entity state.
     /// This is used when we want to retain an old version of an entity state in face of mutation.
@@ -1331,7 +1334,7 @@ and [<TypeConverter (typeof<GameConverter>)>] Game (gameAddress : Game Address) 
 
     /// Get the latest value of a game's properties.
     [<DebuggerBrowsable (DebuggerBrowsableState.RootHidden)>]
-    member private this.View = WorldTypes.viewGame WorldTypes.Chosen
+    member private this.View = WorldTypes.viewGame handle WorldTypes.Chosen
 
     /// A convenience accessor to get the universal game handle.
     static member Handle = handle
@@ -1779,14 +1782,16 @@ and GameDescriptor =
 
 /// Provides simulant bookkeeping information with the ImNui API.
 and [<NoEquality; NoComparison>] internal SimulantImNui =
-    { mutable SimulantUtilized : bool
+    { mutable SimulantInitializing : bool
+      mutable SimulantUtilized : bool
+      InitializationTime : int64
       Result : obj }
 
 /// Provides subscription bookkeeping information with the ImNui API.
 and [<NoEquality; NoComparison>] internal SubscriptionImNui =
     { mutable SubscriptionUtilized : bool
-      Results : obj
-      SubscriptionId : uint64 }
+      SubscriptionId : uint64
+      Results : obj }
 
 /// Describes an argument used with the ImNui API.
 and [<Struct>] ArgImNui<'s when 's :> Simulant> =
@@ -1816,8 +1821,8 @@ and [<ReferenceEquality>] internal Subsystems =
 and [<ReferenceEquality>] internal WorldExtension =
     { mutable ContextImNui : Address
       mutable RecentImNui : Address
-      mutable SimulantImNuis : OMap<Simulant, SimulantImNui>
-      mutable SubscriptionImNuis : OMap<string * Address * Address, SubscriptionImNui>
+      mutable SimulantImNuis : SUMap<Address, SimulantImNui>
+      mutable SubscriptionImNuis : SUMap<string * Address * Address, SubscriptionImNui>
       DestructionListRev : Simulant list
       Dispatchers : Dispatchers
       Plugin : NuPlugin
@@ -1943,6 +1948,12 @@ and [<ReferenceEquality>] World =
         | :? (Entity Address) as entityAddress -> Entity entityAddress
         | _ -> raise (InvalidOperationException "ImNui context not of type needed to construct requested handle.")
 
+    /// Check that the current ImNui context is initializing this frame.
+    member this.ContextInitializing =
+        match this.WorldExtension.SimulantImNuis.TryGetValue this.WorldExtension.ContextImNui with
+        | (true, simulantImNui) -> simulantImNui.SimulantInitializing
+        | (false, _) -> false
+
     /// Get the most recent ImNui context.
     member this.RecentImNui =
         this.WorldExtension.RecentImNui
@@ -1973,6 +1984,12 @@ and [<ReferenceEquality>] World =
         match this.WorldExtension.RecentImNui with
         | :? (Entity Address) as entityAddress -> Entity entityAddress
         | _ -> raise (InvalidOperationException "Recent ImNui context not of type needed to construct requested handle.")
+
+    /// Check that the recent ImNui context is initializing this frame.
+    member this.RecentInitializing =
+        match this.WorldExtension.SimulantImNuis.TryGetValue this.WorldExtension.RecentImNui with
+        | (true, simulantImNui) -> simulantImNui.SimulantInitializing
+        | (false, _) -> false
 
     member internal this.SimulantImNuis =
         this.WorldExtension.SimulantImNuis
