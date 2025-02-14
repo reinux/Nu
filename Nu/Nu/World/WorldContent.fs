@@ -1,5 +1,5 @@
 ﻿// Nu Game Engine.
-// Copyright (C) Bryan Edds, 2013-2023.
+// Copyright (C) Bryan Edds.
 
 namespace Nu
 open System
@@ -161,7 +161,7 @@ module Content =
                 let propertyContent = propertyContents.[i]
                 if not propertyContent.PropertyStatic || initializing then
                     let lens = propertyContent.PropertyLens
-                    if strEq lens.Name "MountOpt" then mountOptFound <- true
+                    if strEq lens.Name Constants.Engine.MountOptPropertyName then mountOptFound <- true
                     match lens.This :> obj with
                     | null -> world <- World.setEntityPropertyFast lens.Name { PropertyType = lens.Type; PropertyValue = propertyContent.PropertyValue } entity world
                     | _ -> world <- lens.TrySet propertyContent.PropertyValue world |> snd'
@@ -269,7 +269,7 @@ module Content =
                         let world =
                             if not (entity.GetExists world) || entity.GetDestroying world then
                                 match entityContent.EntityFilePathOpt with
-                                | Some entityFilePath -> World.readEntityFromFile entityFilePath (Some entity.Name) entity.Parent world |> snd
+                                | Some entityFilePath -> World.readEntityFromFile false true entityFilePath (Some entity.Name) entity.Parent world |> snd
                                 | None -> World.createEntity5 entityContent.EntityDispatcherName DefaultOverlay (Some entity.Surnames) entity.Group world |> snd
                             else world
                         let world = World.setEntityProtected true entity world |> snd'
@@ -465,6 +465,9 @@ module Content =
 
     /// Describe a tmx map with the given definitions.
     let tmxMap entityName definitions = entity<TmxMapDispatcher> entityName definitions
+
+    /// Describe a Spine skeleton with the given definitions.
+    let spineSkeleton entityName definitions = entity<SpineSkeletonDispatcher> entityName definitions
 
     /// Describe a 3d light probe with the given definitions.
     let lightProbe3d entityName definitions = entity<LightProbe3dDispatcher> entityName definitions

@@ -8,11 +8,12 @@ module Constants =
     [<RequireQualifiedAccess>]
     module Gameplay =
 
-        let [<Literal>] CharacterInterpolationSteps = 4
-        let [<Literal>] CharacterPositionInterpDistanceMax = 1.0f
         let [<Literal>] CharacterAnimatedModelName = "AnimatedModel"
         let [<Literal>] CharacterWeaponName = "Weapon"
         let [<Literal>] CharacterWeaponHandBoneName = "mixamorig:RightHand"
-        let [<Literal>] PlayerWalkSpeed = 0.1f
-        let [<Literal>] PlayerTurnSpeed = 0.05f
-        let [<Literal>] PlayerJumpSpeed = 10.0f
+        let [<Literal>] EnemyWalkSpeed = 2.0f
+        let [<Literal>] EnemyTurnSpeed = 5.0f
+        let [<Literal>] EnemyHitPointsMax = 3
+        let [<Literal>] PlayerWalkSpeed = 3.0f
+        let [<Literal>] PlayerTurnSpeed = 3.0f
+        let [<Literal>] PlayerHitPointsMax = 5

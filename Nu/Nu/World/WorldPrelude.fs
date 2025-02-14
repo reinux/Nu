@@ -1,5 +1,5 @@
 ﻿// Nu Game Engine.
-// Copyright (C) Bryan Edds, 2013-2023.
+// Copyright (C) Bryan Edds.
 
 namespace Nu
 open System
@@ -62,6 +62,17 @@ type TileMapDescriptor =
       TileMapSizeI : Vector2i
       TileMapSizeF : Vector2
       TileMapPosition : Vector2 }
+
+/// Describes a Spine animation for a given track.
+type [<DefaultValue "[idle Loop]">] SpineAnimation =
+    { SpineAnimationName : string
+      SpineAnimationPlayback : Playback }
+
+/// Represents the mutable backing state of an animating Spine skeleton.
+/// NOTE: this is inherently imperative and therefore currently unsupported by undo / redo.
+type SpineSkeletonState =
+    { SpineSkeleton : Spine.Skeleton
+      SpineAnimationState : Spine.AnimationState }
 
 /// The timing with which an effect should be evaluated in a frame.
 type RunMode =
@@ -267,7 +278,7 @@ type Layout =
 
 /// The type of a screen transition. Incoming means a new screen is being shown and Outgoing
 /// means an existing screen being hidden.
-type [<Struct>] TransitionType =
+type TransitionType =
     | Incoming
     | Outgoing
 
@@ -444,9 +455,9 @@ module AmbientState =
               // cache line 2
               KeyValueStore : SUMap<string, obj>
               TickTime : int64
-              TickTimeShavings : int64
               TickWatch : Stopwatch
               DateDelta : TimeSpan
+              TickDeltaPrevious : int64
               // cache line 3
               DateTime : DateTimeOffset
               Tasklets : OMap<Simulant, 'w Tasklet UList>
@@ -522,20 +533,25 @@ module AmbientState =
 
     /// Update the update and clock times.
     let updateTime (state : 'w AmbientState) =
+        let tickDeltaCurrent =
+            if state.Advancing
+            then min state.TickWatch.ElapsedTicks Constants.Engine.TickDeltaMax
+            else 0L
+        state.TickWatch.Restart ()
         let updateDelta = if state.Advancing then 1L else 0L
-        let tickTimeShaved = state.TickWatch.ElapsedTicks - state.TickTimeShavings
-        let tickDeltaUnshaved = tickTimeShaved - state.TickTime
-        let tickDelta = min (tickTimeShaved - state.TickTime) Constants.Engine.TickDeltaMax
-        let tickDeltaShavings = max (tickDeltaUnshaved - tickDelta) 0L
-        let tickTime = tickTimeShaved - tickDeltaShavings
+        let tickDelta =
+            if Constants.Engine.TickDeltaAveraging
+            then (tickDeltaCurrent + state.TickDeltaPrevious) / 2L
+            else tickDeltaCurrent
+        let tickTime = state.TickTime + tickDelta
         let dateTime = DateTimeOffset.Now
         { state with
             UpdateTime = state.UpdateTime + updateDelta
             ClockDelta = single tickDelta / single Stopwatch.Frequency
             ClockTime = single tickTime / single Stopwatch.Frequency
-            TickTime = tickTime
-            TickTimeShavings = state.TickTimeShavings + tickDeltaShavings
             TickDelta = tickDelta
+            TickDeltaPrevious = tickDeltaCurrent
+            TickTime = tickTime
             DateTime = dateTime
             DateDelta = dateTime - state.DateTime }
 
@@ -615,6 +631,27 @@ module AmbientState =
         | Some deps -> { state with SdlDepsOpt = Some (SdlDeps.trySetWindowFullScreen fullScreen deps) }
         | None -> state
 
+    /// Attempt to toggle the window's full screen state.
+    let tryToggleWindowFullScreen state =
+        match tryGetWindowFullScreen state with
+        | Some fullScreen -> trySetWindowFullScreen (not fullScreen) state
+        | None -> state
+
+    /// Attempt to get the window position.
+    let tryGetWindowPosition state =
+        match Option.flatten (Option.map SdlDeps.getWindowOpt state.SdlDepsOpt) with
+        | Some (SglWindow window) ->
+            let (x, y) = (ref 0, ref 0)
+            SDL.SDL_GetWindowPosition (window.SglWindow, x, y) |> ignore
+            Some (v2i x.Value y.Value)
+        | _ -> None
+
+    /// Attempt to set the window's position.
+    let trySetWindowPosition (position : Vector2i) state =
+        match Option.flatten (Option.map SdlDeps.getWindowOpt state.SdlDepsOpt) with
+        | Some (SglWindow window) -> SDL.SDL_SetWindowPosition (window.SglWindow, position.X, position.Y) |> ignore
+        | None -> ()
+
     /// Attempt to get the window size.
     let tryGetWindowSize state =
         match Option.flatten (Option.map SdlDeps.getWindowOpt state.SdlDepsOpt) with
@@ -623,6 +660,12 @@ module AmbientState =
             SDL.SDL_GetWindowSize (window.SglWindow, width, height) |> ignore
             Some (v2i width.Value height.Value)
         | _ -> None
+
+    /// Attempt to set the window's size.
+    let trySetWindowSize (size : Vector2i) state =
+        match Option.flatten (Option.map SdlDeps.getWindowOpt state.SdlDepsOpt) with
+        | Some (SglWindow window) -> SDL.SDL_SetWindowSize (window.SglWindow, size.X, size.Y) |> ignore
+        | None -> ()
 
     /// Get symbolics with the by map.
     let getSymbolicsBy by state =
@@ -681,10 +724,10 @@ module AmbientState =
           TickDelta = 0L
           KeyValueStore = SUMap.makeEmpty HashIdentity.Structural config
           TickTime = 0L
-          TickTimeShavings = 0L
           TickWatch = if advancing then Stopwatch.StartNew () else Stopwatch ()
-          DateTime = DateTime.Now
           DateDelta = TimeSpan.Zero
+          TickDeltaPrevious = 0L
+          DateTime = DateTime.Now
           Tasklets = OMap.makeEmpty HashIdentity.Structural config
           SdlDepsOpt = sdlDepsOpt
           Symbolics = symbolics

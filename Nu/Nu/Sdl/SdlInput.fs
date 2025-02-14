@@ -1,5 +1,5 @@
 ﻿// Nu Game Engine.
-// Copyright (C) Bryan Edds, 2013-2023.
+// Copyright (C) Bryan Edds.
 
 namespace Nu
 open System
@@ -86,6 +86,13 @@ module internal MouseState =
     /// Check that the given mouse button is up.
     let internal isButtonUp mouseButton =
         not (isButtonDown mouseButton)
+
+    /// Check that the given mouse button was just pressed.
+    let internal isButtonPressed mouseButton =
+        let sdlMouseButton = toSdlButton mouseButton
+        let sdlMouseButtonMask = SDL.SDL_BUTTON sdlMouseButton
+        (MouseButtonStatePrevious &&& sdlMouseButtonMask = 0u) &&
+        (MouseButtonStateCurrent &&& sdlMouseButtonMask <> 0u)
 
     /// Check that the given mouse button was just clicked.
     let internal isButtonClicked mouseButton =

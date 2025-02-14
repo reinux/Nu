@@ -1,5 +1,5 @@
 ﻿// Nu Game Engine.
-// Copyright (C) Bryan Edds, 2013-2023.
+// Copyright (C) Bryan Edds.
 
 namespace ImGuiNET
 open System
@@ -53,12 +53,11 @@ module ImGui =
     let mutable private TypeSortOrderCopy = ImGuiFileSortOrder.Unsorted
 
     let private refreshInfo (dialogInfo : ImGuiFileDialogState) =
+        let directory = DirectoryInfo dialogInfo.DirectoryPath.FullName
         dialogInfo.RefreshInfo <- false
         dialogInfo.CurrentDirectories <- []
         dialogInfo.CurrentFiles <- []
         dialogInfo.CurrentIndex <- 0UL
-
-        let directory = DirectoryInfo dialogInfo.DirectoryPath.FullName
         dialogInfo.CurrentDirectories <- directory.GetDirectories () |> Seq.toList
         dialogInfo.CurrentFiles <- directory.GetFiles (dialogInfo.FilePattern) |> Seq.toList
 
@@ -124,8 +123,8 @@ module ImGui =
             let mutable complete = false
 
             ImGui.PushID (dialogState.GetHashCode ())
-            ImGui.SetNextWindowSize (v2 740.0f 410.0f, ImGuiCond.FirstUseEver)
-
+            ImGui.SetNextWindowSize (v2 740.0f 410.0f, ImGuiCond.Appearing)
+            ImGui.SetNextWindowPos (ImGui.MainViewportCenter, ImGuiCond.Appearing, v2Dup 0.5f)
             if not (ImGui.IsPopupOpen dialogState.Title) then ImGui.OpenPopup dialogState.Title
             if ImGui.BeginPopupModal (dialogState.Title, &opened, ImGuiWindowFlags.NoDocking) then
 
@@ -135,9 +134,9 @@ module ImGui =
                 // Draw path
                 ImGui.Text ("Path: " + PathF.Normalize dialogState.DirectoryPath.FullName)
 
-                let contentRegionWidth = ImGui.GetWindowContentRegionMax().X - ImGui.GetWindowContentRegionMin().X
+                let contentRegionWidth = ImGui.GetContentRegionAvail().X
 
-                ImGui.BeginChild ("##browser", v2 contentRegionWidth 300.0f, true, ImGuiWindowFlags.HorizontalScrollbar) |> ignore<bool>
+                ImGui.BeginChild ("##browser", v2 contentRegionWidth 300.0f, ImGuiChildFlags.None, ImGuiWindowFlags.HorizontalScrollbar) |> ignore<bool>
                 ImGui.Columns 4
 
                 // Columns size
@@ -207,11 +206,13 @@ module ImGui =
                     let mutable lastWriteTime = parentPath.LastWriteTime
                     let mutable size = "-"
 
-                    if ImGui.Selectable (parentName, dialogState.CurrentIndex = index, ImGuiSelectableFlags.None, v2 contentRegionWidth 0.0f) then
+                    if ImGui.Selectable (parentName, dialogState.CurrentIndex = index, ImGuiSelectableFlags.AllowDoubleClick, v2 contentRegionWidth 0.0f) then
                         dialogState.CurrentIndex <- index
-                        dialogState.DirectoryPath <- parentPath
-                        dialogState.RefreshInfo <- true
-                        sort (dialogState, true)
+
+                        if ImGui.IsMouseDoubleClicked ImGuiMouseButton.Left then
+                            dialogState.DirectoryPath <- parentPath
+                            dialogState.RefreshInfo <- true
+                            sort (dialogState, true)
                     ImGui.NextColumn ()
                     ImGui.TextUnformatted size
                     ImGui.NextColumn ()
@@ -229,11 +230,13 @@ module ImGui =
                     let mutable lastWriteTime = directoryEntry.LastWriteTime
                     let mutable size = "-"
 
-                    if ImGui.Selectable (directoryName, dialogState.CurrentIndex = index, ImGuiSelectableFlags.None, v2 contentRegionWidth 0.0f) then
+                    if ImGui.Selectable (directoryName, dialogState.CurrentIndex = index, ImGuiSelectableFlags.AllowDoubleClick, v2 contentRegionWidth 0.0f) then
                         dialogState.CurrentIndex <- index
-                        dialogState.DirectoryPath <- directoryPath
-                        dialogState.RefreshInfo <- true
-                        sort (dialogState, true)
+
+                        if ImGui.IsMouseDoubleClicked ImGuiMouseButton.Left then
+                            dialogState.DirectoryPath <- directoryPath
+                            dialogState.RefreshInfo <- true
+                            sort (dialogState, true)
                     ImGui.NextColumn ()
                     ImGui.TextUnformatted size
                     ImGui.NextColumn ()
@@ -252,10 +255,12 @@ module ImGui =
                     let mutable lastWriteTime = fileEntry.LastWriteTime
                     let mutable size = string fileEntry.Length
 
-                    if ImGui.Selectable (fileName, dialogState.CurrentIndex = index, ImGuiSelectableFlags.None, v2 contentRegionWidth 0.0f) then
+                    if ImGui.Selectable (fileName, dialogState.CurrentIndex = index, ImGuiSelectableFlags.AllowDoubleClick, v2 contentRegionWidth 0.0f) then
                         dialogState.CurrentIndex <- index
                         dialogState.FileName <- fileName
-                        filePicked <- true
+
+                        if ImGui.IsMouseDoubleClicked ImGuiMouseButton.Left then
+                            filePicked <- true
 
                     ImGui.NextColumn ()
                     ImGui.TextUnformatted size
@@ -280,7 +285,7 @@ module ImGui =
 
                 fileNameBuffer <- fileNameStr.Substring(0, fileNameSize)
 
-                ImGui.PushItemWidth contentRegionWidth
+                ImGui.PushItemWidth (ImGui.GetContentRegionAvail().X - 65.0f)
                 if ImGui.InputText ("File Name", &fileNameBuffer, uint fileNameBufferSize, ImGuiInputTextFlags.AutoSelectAll) then
                     dialogState.FileName <- fileNameBuffer
                     dialogState.CurrentIndex <- 0UL
@@ -341,7 +346,8 @@ module ImGui =
 
                     opened <- false
 
-            ImGui.EndPopup ()
+                ImGui.EndPopup ()
+
             ImGui.PopID ()
 
             complete

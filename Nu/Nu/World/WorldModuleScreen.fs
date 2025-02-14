@@ -1,18 +1,21 @@
 ﻿// Nu Game Engine.
-// Copyright (C) Bryan Edds, 2013-2023.
+// Copyright (C) Bryan Edds.
 
 namespace Nu
 open System
-open System.Collections.Generic
+open System.Collections.Frozen
 open Prime
 
 [<AutoOpen>]
 module WorldModuleScreen =
 
+    /// Dynamic property getter and setter.
+    type private PropertyGetter = Screen -> World -> Property
+    type private PropertySetter = Property -> Screen -> World -> struct (bool * World)
+
     /// Dynamic property getters / setters.
-    /// TODO: make these FrozenDictionaries.
-    let private ScreenGetters = Dictionary<string, Screen -> World -> Property> StringComparer.Ordinal
-    let private ScreenSetters = Dictionary<string, Property -> Screen -> World -> struct (bool * World)> StringComparer.Ordinal
+    let mutable private ScreenGetters = Unchecked.defaultof<FrozenDictionary<string, PropertyGetter>>
+    let mutable private ScreenSetters = Unchecked.defaultof<FrozenDictionary<string, PropertySetter>>
 
     type World with
 
@@ -89,9 +92,14 @@ module WorldModuleScreen =
             let screenState = World.getScreenState screen world
             screenState.Xtension |> Xtension.toSeq |> Seq.toList
 
-        /// Check that a screen exists in the world.
         static member internal getScreenExists screen world =
             Option.isSome (World.getScreenStateOpt screen world)
+
+        static member internal getScreenSelected (screen : Screen) world =
+            let gameState = World.getGameState Game.Handle world
+            match gameState.SelectedScreenOpt with
+            | Some selectedScreen when screen.Name = selectedScreen.Name -> true
+            | _ -> false
 
         static member internal getScreenDispatcher screen world = (World.getScreenState screen world).Dispatcher
         static member internal getScreenModelProperty screen world = (World.getScreenState screen world).Model
@@ -224,28 +232,6 @@ module WorldModuleScreen =
             | true -> property
             | false -> failwithf "Could not find property '%s'." propertyName
 
-        static member internal getScreenXtensionValue<'a> propertyName screen world =
-            let screenState = World.getScreenState screen world
-            let mutable property = Unchecked.defaultof<_>
-            if ScreenState.tryGetProperty (propertyName, screenState, &property) then
-                match property.PropertyValue with
-                | :? 'a as value -> value
-                | null -> null :> obj :?> 'a
-                | valueObj -> valueObj |> valueToSymbol |> symbolToValue
-            else
-                let definitions = Reflection.getPropertyDefinitions (getType screenState.Dispatcher)
-                let value =
-                    match List.tryFind (fun (pd : PropertyDefinition) -> pd.PropertyName = propertyName) definitions with
-                    | Some definition ->
-                        match definition.PropertyExpr with
-                        | DefineExpr value -> value :?> 'a
-                        | VariableExpr _ -> failwith "ScreenDispatchers do not support variable properties."
-                        | ComputedExpr _ -> failwith "ScreenDispatchers do not support computed properties."
-                    | None -> failwithumf ()
-                let property = { PropertyType = typeof<'a>; PropertyValue = value }
-                screenState.Xtension <- Xtension.attachProperty propertyName property screenState.Xtension
-                value
-
         static member internal tryGetScreenProperty (propertyName, screen, world, property : _ outref) =
             match ScreenGetters.TryGetValue propertyName with
             | (true, getter) ->
@@ -254,36 +240,137 @@ module WorldModuleScreen =
                     true
                 else false
             | (false, _) ->
-                World.tryGetScreenXtensionProperty (propertyName, screen, world, &property)
+                let screenState = World.getScreenState screen world
+                if ScreenState.tryGetProperty (propertyName, screenState, &property) then
+                    match property.PropertyValue with
+                    | :? DesignerProperty as dp -> property <- { PropertyType = dp.DesignerType; PropertyValue = dp.DesignerValue }; true
+                    | :? ComputedProperty as cp -> property <- { PropertyType = cp.ComputedType; PropertyValue = cp.ComputedGet (screen :> obj) (world :> obj) }; true
+                    | _ -> true
+                else false
+
+        static member internal getScreenXtensionValue<'a> propertyName screen world =
+            let screenState = World.getScreenState screen world
+            let mutable property = Unchecked.defaultof<_>
+            if ScreenState.tryGetProperty (propertyName, screenState, &property) then
+                let valueObj =
+                    match property.PropertyValue with
+                    | :? DesignerProperty as dp -> dp.DesignerValue
+                    | :? ComputedProperty as cp -> cp.ComputedGet screen world
+                    | _ -> property.PropertyValue
+                match valueObj with
+                | :? 'a as value -> value
+                | null -> null :> obj :?> 'a
+                | value ->
+                    let value' = value |> valueToSymbol |> symbolToValue
+                    match property.PropertyValue with
+                    | :? DesignerProperty as dp -> dp.DesignerType <- typeof<'a>; dp.DesignerValue <- value'
+                    | :? ComputedProperty -> () // nothing to do
+                    | _ -> property.PropertyType <- typeof<'a>; property.PropertyValue <- value'
+                    value'
+            else
+                let definitions = Reflection.getPropertyDefinitions (getType screenState.Dispatcher)
+                let value =
+                    match List.tryFind (fun (pd : PropertyDefinition) -> pd.PropertyName = propertyName) definitions with
+                    | Some definition ->
+                        match definition.PropertyExpr with
+                        | DefineExpr value -> value :?> 'a
+                        | VariableExpr eval -> eval world :?> 'a
+                        | ComputedExpr property -> property.ComputedGet screen world :?> 'a
+                    | None -> failwithumf ()
+                let property = { PropertyType = typeof<'a>; PropertyValue = value }
+                screenState.Xtension <- Xtension.attachProperty propertyName property screenState.Xtension
+                value
 
         static member internal getScreenProperty propertyName screen world =
             match ScreenGetters.TryGetValue propertyName with
             | (true, getter) -> getter screen world
             | (false, _) -> World.getScreenXtensionProperty propertyName screen world
 
+        static member internal trySetScreenXtensionPropertyWithoutEvent propertyName (property : Property) screenState screen world =
+            let mutable propertyOld = Unchecked.defaultof<_>
+            match ScreenState.tryGetProperty (propertyName, screenState, &propertyOld) with
+            | true ->
+                match propertyOld.PropertyValue with
+                | :? DesignerProperty as dp ->
+                    let previous = dp.DesignerValue
+                    if property.PropertyValue =/= previous then
+                        let property = { property with PropertyValue = { dp with DesignerValue = property.PropertyValue }}
+                        match ScreenState.trySetProperty propertyName property screenState with
+                        | struct (true, screenState) -> struct (true, true, previous, World.setScreenState screenState screen world)
+                        | struct (false, _) -> struct (false, false, previous, world)
+                    else (true, false, previous, world)
+                | :? ComputedProperty as cp ->
+                    match cp.ComputedSetOpt with
+                    | Some computedSet ->
+                        let previous = cp.ComputedGet (box screen) (box world)
+                        if property.PropertyValue =/= previous
+                        then struct (true, true, previous, computedSet property.PropertyValue screen world :?> World)
+                        else struct (true, false, previous, world)
+                    | None -> struct (false, false, Unchecked.defaultof<_>, world)
+                | _ ->
+                    let previous = propertyOld.PropertyValue
+                    if property.PropertyValue =/= previous then
+                        match ScreenState.trySetProperty propertyName property screenState with
+                        | struct (true, screenState) -> (true, true, previous, World.setScreenState screenState screen world)
+                        | struct (false, _) -> struct (false, false, previous, world)
+                    else struct (true, false, previous, world)
+            | false -> struct (false, false, Unchecked.defaultof<_>, world)
+
         static member internal trySetScreenXtensionPropertyFast propertyName (property : Property) screen world =
             let screenState = World.getScreenState screen world
-            match ScreenState.tryGetProperty (propertyName, screenState) with
-            | (true, propertyOld) ->
-                if property.PropertyValue =/= propertyOld.PropertyValue then
-                    let struct (success, screenState) = ScreenState.trySetProperty propertyName property screenState
-                    let world = World.setScreenState screenState screen world
-                    if success then World.publishScreenChange propertyName propertyOld.PropertyValue property.PropertyValue screen world else world
+            match World.trySetScreenXtensionPropertyWithoutEvent propertyName property screenState screen world with
+            | struct (true, changed, previous, world) ->
+                if changed
+                then World.publishScreenChange propertyName previous property.PropertyValue screen world
                 else world
-            | (false, _) -> world
+            | struct (false, _, _, world) -> world
 
         static member internal trySetScreenXtensionProperty propertyName (property : Property) screen world =
             let screenState = World.getScreenState screen world
-            match ScreenState.tryGetProperty (propertyName, screenState) with
-            | (true, propertyOld) ->
-                if property.PropertyValue =/= propertyOld.PropertyValue then
-                    let struct (success, screenState) = ScreenState.trySetProperty propertyName property screenState
-                    let world = World.setScreenState screenState screen world
-                    if success
-                    then struct (success, true, World.publishScreenChange propertyName propertyOld.PropertyValue property.PropertyValue screen world)
-                    else struct (false, true, world)
-                else struct (false, false, world)
-            | (false, _) -> struct (false, false, world)
+            match World.trySetScreenXtensionPropertyWithoutEvent propertyName property screenState screen world with
+            | struct (true, changed, previous, world) ->
+                let world =
+                    if changed
+                    then World.publishScreenChange propertyName previous property.PropertyValue screen world
+                    else world
+                struct (true, changed, world)
+            | struct (false, changed, _, world) -> struct (false, changed, world)
+
+        static member internal setScreenXtensionValue<'a> propertyName (value : 'a) screen world =
+            let screenState = World.getScreenState screen world
+            let propertyOld = ScreenState.getProperty propertyName screenState
+            let mutable previous = Unchecked.defaultof<obj> // OPTIMIZATION: avoid passing around structs.
+            let mutable changed = false // OPTIMIZATION: avoid passing around structs.
+            let world =
+                match propertyOld.PropertyValue with
+                | :? DesignerProperty as dp ->
+                    previous <- dp.DesignerValue
+                    if value =/= previous then
+                        changed <- true
+                        let property = { propertyOld with PropertyValue = { dp with DesignerValue = value }}
+                        let screenState = ScreenState.setProperty propertyName property screenState
+                        World.setScreenState screenState screen world
+                    else world
+                | :? ComputedProperty as cp ->
+                    match cp.ComputedSetOpt with
+                    | Some computedSet ->
+                        previous <- cp.ComputedGet (box screen) (box world)
+                        if value =/= previous then
+                            changed <- true
+                            computedSet propertyOld.PropertyValue screen world :?> World
+                        else world
+                    | None -> world
+                | _ ->
+                    previous <- propertyOld.PropertyValue
+                    if value =/= previous then
+                        changed <- true
+                        let property = { propertyOld with PropertyValue = value }
+                        let screenState = ScreenState.setProperty propertyName property screenState
+                        World.setScreenState screenState screen world
+                    else world
+            if changed
+            then World.publishScreenChange propertyName previous value screen world
+            else world
 
         static member internal setScreenXtensionProperty propertyName (property : Property) screen world =
             let screenState = World.getScreenState screen world
@@ -378,29 +465,35 @@ module WorldModuleScreen =
 
     /// Initialize property getters.
     let private initGetters () =
-        ScreenGetters.Add ("Dispatcher", fun screen world -> { PropertyType = typeof<ScreenDispatcher>; PropertyValue = World.getScreenDispatcher screen world })
-        ScreenGetters.Add ("Model", fun screen world -> let designerProperty = World.getScreenModelProperty screen world in { PropertyType = designerProperty.DesignerType; PropertyValue = designerProperty.DesignerValue })
-        ScreenGetters.Add ("TransitionState", fun screen world -> { PropertyType = typeof<TransitionState>; PropertyValue = World.getScreenTransitionState screen world })
-        ScreenGetters.Add ("Incoming", fun screen world -> { PropertyType = typeof<Transition>; PropertyValue = World.getScreenIncoming screen world })
-        ScreenGetters.Add ("Outgoing", fun screen world -> { PropertyType = typeof<Transition>; PropertyValue = World.getScreenOutgoing screen world })
-        ScreenGetters.Add ("RequestedSong", fun screen world -> { PropertyType = typeof<RequestedSong>; PropertyValue = World.getScreenRequestedSong screen world })
-        ScreenGetters.Add ("SlideOpt", fun screen world -> { PropertyType = typeof<Slide option>; PropertyValue = World.getScreenSlideOpt screen world })
-        ScreenGetters.Add ("Nav3d", fun screen world -> { PropertyType = typeof<Nav3d>; PropertyValue = World.getScreenNav3d screen world })
-        ScreenGetters.Add ("Protected", fun screen world -> { PropertyType = typeof<bool>; PropertyValue = World.getScreenProtected screen world })
-        ScreenGetters.Add ("Persistent", fun screen world -> { PropertyType = typeof<bool>; PropertyValue = World.getScreenPersistent screen world })
-        ScreenGetters.Add ("Order", fun screen world -> { PropertyType = typeof<int64>; PropertyValue = World.getScreenOrder screen world })
-        ScreenGetters.Add ("Id", fun screen world -> { PropertyType = typeof<Guid>; PropertyValue = World.getScreenId screen world })
-        ScreenGetters.Add ("Name", fun screen world -> { PropertyType = typeof<string>; PropertyValue = World.getScreenName screen world })
+        let screenGetters =
+            dictPlus StringComparer.Ordinal
+                [("Dispatcher", fun screen world -> { PropertyType = typeof<ScreenDispatcher>; PropertyValue = World.getScreenDispatcher screen world })
+                 ("Model", fun screen world -> let designerProperty = World.getScreenModelProperty screen world in { PropertyType = designerProperty.DesignerType; PropertyValue = designerProperty.DesignerValue })
+                 ("TransitionState", fun screen world -> { PropertyType = typeof<TransitionState>; PropertyValue = World.getScreenTransitionState screen world })
+                 ("Incoming", fun screen world -> { PropertyType = typeof<Transition>; PropertyValue = World.getScreenIncoming screen world })
+                 ("Outgoing", fun screen world -> { PropertyType = typeof<Transition>; PropertyValue = World.getScreenOutgoing screen world })
+                 ("RequestedSong", fun screen world -> { PropertyType = typeof<RequestedSong>; PropertyValue = World.getScreenRequestedSong screen world })
+                 ("SlideOpt", fun screen world -> { PropertyType = typeof<Slide option>; PropertyValue = World.getScreenSlideOpt screen world })
+                 ("Nav3d", fun screen world -> { PropertyType = typeof<Nav3d>; PropertyValue = World.getScreenNav3d screen world })
+                 ("Protected", fun screen world -> { PropertyType = typeof<bool>; PropertyValue = World.getScreenProtected screen world })
+                 ("Persistent", fun screen world -> { PropertyType = typeof<bool>; PropertyValue = World.getScreenPersistent screen world })
+                 ("Order", fun screen world -> { PropertyType = typeof<int64>; PropertyValue = World.getScreenOrder screen world })
+                 ("Id", fun screen world -> { PropertyType = typeof<Guid>; PropertyValue = World.getScreenId screen world })
+                 ("Name", fun screen world -> { PropertyType = typeof<string>; PropertyValue = World.getScreenName screen world })]
+        ScreenGetters <- screenGetters.ToFrozenDictionary ()
 
     /// Initialize property setters.
     let private initSetters () =
-        ScreenSetters.Add ("Model", fun property screen world -> World.setScreenModelProperty false { DesignerType = property.PropertyType; DesignerValue = property.PropertyValue } screen world)
-        ScreenSetters.Add ("TransitionState", fun property screen world -> World.setScreenTransitionState (property.PropertyValue :?> TransitionState) screen world)
-        ScreenSetters.Add ("Incoming", fun property screen world -> World.setScreenIncoming (property.PropertyValue :?> Transition) screen world)
-        ScreenSetters.Add ("Outgoing", fun property screen world -> World.setScreenOutgoing (property.PropertyValue :?> Transition) screen world)
-        ScreenSetters.Add ("RequestedSong", fun property screen world -> World.setScreenRequestedSong (property.PropertyValue :?> RequestedSong) screen world)
-        ScreenSetters.Add ("SlideOpt", fun property screen world -> World.setScreenSlideOpt (property.PropertyValue :?> Slide option) screen world)
-        ScreenSetters.Add ("Persistent", fun property screen world -> World.setScreenPersistent (property.PropertyValue :?> bool) screen world)
+        let screenSetters =
+            dictPlus StringComparer.Ordinal
+                [("Model", fun property screen world -> World.setScreenModelProperty false { DesignerType = property.PropertyType; DesignerValue = property.PropertyValue } screen world)
+                 ("TransitionState", fun property screen world -> World.setScreenTransitionState (property.PropertyValue :?> TransitionState) screen world)
+                 ("Incoming", fun property screen world -> World.setScreenIncoming (property.PropertyValue :?> Transition) screen world)
+                 ("Outgoing", fun property screen world -> World.setScreenOutgoing (property.PropertyValue :?> Transition) screen world)
+                 ("RequestedSong", fun property screen world -> World.setScreenRequestedSong (property.PropertyValue :?> RequestedSong) screen world)
+                 ("SlideOpt", fun property screen world -> World.setScreenSlideOpt (property.PropertyValue :?> Slide option) screen world)
+                 ("Persistent", fun property screen world -> World.setScreenPersistent (property.PropertyValue :?> bool) screen world)]
+        ScreenSetters <- screenSetters.ToFrozenDictionary ()
 
     /// Initialize getters and setters
     let internal init () =

@@ -1,5 +1,5 @@
 ﻿// Nu Game Engine.
-// Copyright (C) Bryan Edds, 2013-2023.
+// Copyright (C) Bryan Edds.
 
 namespace Nu
 open System
@@ -38,7 +38,6 @@ module Reflection =
              ("Dispatcher", true)
              ("Content", true)
              ("Protected", true)
-             ("Order", true)
              ("Id", true)
 
              // game properties
@@ -557,8 +556,7 @@ module Reflection =
                     then failwith ("Facet of type '" + getTypeName facet + "' is not compatible with target '" + scstring target + "'.")
                     else ())
                     facets
-                let facets = Array.append facetsExisting facets
-                facetsProperty.SetValue (target, facets)
+                facetsProperty.SetValue (target, Array.append facetsExisting facets)
                 Array.fold (fun target facet -> attachProperties copyTarget facet target world) target facets
 
     /// Attach source's intrinsic facets to a target.

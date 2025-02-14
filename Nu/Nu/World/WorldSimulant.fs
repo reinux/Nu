@@ -1,5 +1,5 @@
 ﻿// Nu Game Engine.
-// Copyright (C) Bryan Edds, 2013-2023.
+// Copyright (C) Bryan Edds.
 
 namespace Nu
 open System
@@ -336,6 +336,7 @@ module PropertyDescriptor =
             let properties = Seq.filter (fun (property : PropertyInfo) -> property.Name <> Constants.Engine.TransformPropertyName) properties
             let properties = Seq.filter (fun (property : PropertyInfo) -> property.Name <> Constants.Engine.XtensionPropertyName) properties
             let properties = Seq.filter (fun (property : PropertyInfo) -> property.Name <> "Flags") properties
+            let properties = Seq.filter (fun (property : PropertyInfo) -> property.Name <> "Order") properties
             let properties = Seq.filter (fun (property : PropertyInfo) -> Seq.isEmpty (property.GetCustomAttributes<ExtensionAttribute> ())) properties
             let properties =
                 Seq.filter (fun (property : PropertyInfo) ->

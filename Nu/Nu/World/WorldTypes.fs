@@ -1,5 +1,5 @@
 ﻿// Nu Game Engine.
-// Copyright (C) Bryan Edds, 2013-2023.
+// Copyright (C) Bryan Edds.
 
 namespace Nu
 open System
@@ -71,8 +71,11 @@ and SnapshotType =
     | ChangeProperty of int64 option * string
     | Evaluate of string
     | RestorePoint
+    | NormalizeAttenuation
     | RencenterInProbeBounds
     | ResetProbeBounds
+    | FreezeEntities
+    | ThawEntities
     | ReregisterPhysics
     | SynchronizeNav
     | SetEditMode of int
@@ -106,8 +109,11 @@ and SnapshotType =
         | ChangeProperty (_, propertyName) -> "Change Property " + propertyName
         | Evaluate _ -> "Evaluate F# Expression"
         | RestorePoint -> (scstringMemo this).Spaced
+        | NormalizeAttenuation -> (scstringMemo this).Spaced
         | RencenterInProbeBounds -> (scstringMemo this).Spaced
         | ResetProbeBounds -> (scstringMemo this).Spaced
+        | FreezeEntities -> (scstringMemo this).Spaced
+        | ThawEntities -> (scstringMemo this).Spaced
         | ReregisterPhysics -> (scstringMemo this).Spaced
         | SynchronizeNav -> (scstringMemo this).Spaced
         | SetEditMode i -> (scstringMemo this).Spaced + " (" + string (inc i) + " of 2)"
@@ -171,7 +177,8 @@ and ChangeData =
       Previous : obj
       Value : obj }
 
-/// A property lens interface.
+/// Provides access to the property of a simulant via an interface.
+/// Initially inspired by Haskell lenses, but highly specialized for simulant properties.
 and Lens =
     interface
         /// The name of the property accessed by the lens.
@@ -413,7 +420,7 @@ and [<ReferenceEquality; NoComparison>] Nav3d =
       Nav3dMeshOpt : (NavBuilderResultData * DtNavMesh * DtNavMeshQuery) option }
 
     // Make an empty 3d navigation service.
-    static member make () =
+    static member makeEmpty () =
         { Nav3dContext = RcContext ()
           Nav3dBodies = Map.empty
           Nav3dBodiesOldOpt = None
@@ -499,8 +506,8 @@ and ScreenDispatcher () =
     default this.Unregister (_, world) = world
 
     /// Attempt to ImNui process a screen.
-    abstract TryProcess : Screen * World -> World
-    default this.TryProcess (_, world) = world
+    abstract TryProcess : bool * Screen * World -> World
+    default this.TryProcess (_, _, world) = world
 
     /// Pre-update a screen.
     abstract PreUpdate : Screen * World -> World
@@ -634,6 +641,7 @@ and EntityDispatcher (is2d, physical, lightProbe, light) =
          Define? EnabledLocal true
          Define? Visible true
          Define? VisibleLocal true
+         Define? CastShadow true
          Define? Pickable true
          Define? Static false
          Define? AlwaysUpdate false
@@ -926,11 +934,16 @@ and [<ReferenceEquality; CLIMutable>] GameState =
       Eye2dSize : Vector2
       Eye3dCenter : Vector3
       Eye3dRotation : Quaternion
+      Eye3dFieldOfView : single
       Eye3dFrustumInterior : Frustum // OPTIMIZATION: cached value.
       Eye3dFrustumExterior : Frustum // OPTIMIZATION: cached value.
       Eye3dFrustumImposter : Frustum // OPTIMIZATION: cached value.
       Order : int64
       Id : uint64 }
+
+    /// Copy a game state such as when, say, you need it to be mutated with reflection but you need to preserve persistence.
+    static member copy this =
+        { this with GameState.Dispatcher = this.Dispatcher }
 
     /// Try to get an xtension property and its type information.
     static member tryGetProperty (propertyName, gameState, propertyRef : Property outref) =
@@ -959,17 +972,14 @@ and [<ReferenceEquality; CLIMutable>] GameState =
         let xtension = Xtension.detachProperty name gameState.Xtension
         { gameState with GameState.Xtension = xtension }
 
-    /// Copy a game such as when, say, you need it to be mutated with reflection but you need to preserve persistence.
-    static member copy this =
-        { this with GameState.Dispatcher = this.Dispatcher }
-
     /// Make a game state value.
     static member make (dispatcher : GameDispatcher) =
         let eye3dCenter = Constants.Engine.Eye3dCenterDefault
         let eye3dRotation = quatIdentity
-        let viewportInterior = Viewport (Constants.Render.NearPlaneDistanceInterior, Constants.Render.FarPlaneDistanceInterior, v2iZero, Constants.Render.Resolution)
-        let viewportExterior = Viewport (Constants.Render.NearPlaneDistanceExterior, Constants.Render.FarPlaneDistanceExterior, v2iZero, Constants.Render.Resolution)
-        let viewportImposter = Viewport (Constants.Render.NearPlaneDistanceImposter, Constants.Render.FarPlaneDistanceImposter, v2iZero, Constants.Render.Resolution)
+        let eye3dFieldOfView = Constants.Engine.Eye3dFieldOfViewDefault
+        let viewportInterior = Viewport.makeInterior ()
+        let viewportExterior = Viewport.makeExterior ()
+        let viewportImposter = Viewport.makeImposter ()
         { Dispatcher = dispatcher
           Xtension = Xtension.makeFunctional ()
           Model = { DesignerType = typeof<unit>; DesignerValue = () }
@@ -978,12 +988,13 @@ and [<ReferenceEquality; CLIMutable>] GameState =
           DesiredScreen = DesireIgnore
           ScreenTransitionDestinationOpt = None
           Eye2dCenter = v2Zero
-          Eye2dSize = Constants.Render.VirtualResolution.V2
+          Eye2dSize = Constants.Render.DisplayVirtualResolution.V2
           Eye3dCenter = eye3dCenter
           Eye3dRotation = eye3dRotation
-          Eye3dFrustumInterior = viewportInterior.Frustum (eye3dCenter, eye3dRotation)
-          Eye3dFrustumExterior = viewportExterior.Frustum (eye3dCenter, eye3dRotation)
-          Eye3dFrustumImposter = viewportImposter.Frustum (eye3dCenter, eye3dRotation)
+          Eye3dFieldOfView = eye3dFieldOfView
+          Eye3dFrustumInterior = Viewport.getFrustum eye3dCenter eye3dRotation eye3dFieldOfView viewportInterior
+          Eye3dFrustumExterior = Viewport.getFrustum eye3dCenter eye3dRotation eye3dFieldOfView viewportExterior
+          Eye3dFrustumImposter = Viewport.getFrustum eye3dCenter eye3dRotation eye3dFieldOfView viewportImposter
           Order = Core.getTimeStampUnique ()
           Id = Gen.id64 }
 
@@ -1007,6 +1018,10 @@ and [<ReferenceEquality; CLIMutable>] ScreenState =
       Order : int64
       Id : uint64
       Name : string }
+
+    /// Copy a screen state such as when, say, you need it to be mutated with reflection but you need to preserve persistence.
+    static member copy this =
+        { this with ScreenState.Dispatcher = this.Dispatcher }
 
     /// Try to get an xtension property and its type information.
     static member tryGetProperty (propertyName, screenState, propertyRef : Property outref) =
@@ -1035,10 +1050,6 @@ and [<ReferenceEquality; CLIMutable>] ScreenState =
         let xtension = Xtension.detachProperty name screenState.Xtension
         { screenState with ScreenState.Xtension = xtension }
 
-    /// Copy a screen such as when, say, you need it to be mutated with reflection but you need to preserve persistence.
-    static member copy this =
-        { this with ScreenState.Dispatcher = this.Dispatcher }
-
     /// Make a screen state value.
     static member make time nameOpt (dispatcher : ScreenDispatcher) =
         let (id, name) = Gen.id64AndNameIf nameOpt
@@ -1051,7 +1062,7 @@ and [<ReferenceEquality; CLIMutable>] ScreenState =
           Outgoing = Transition.make Outgoing
           RequestedSong = RequestIgnore
           SlideOpt = None
-          Nav3d = Nav3d.make ()
+          Nav3d = Nav3d.makeEmpty ()
           Protected = false
           Persistent = true
           Order = Core.getTimeStampUnique ()
@@ -1073,6 +1084,10 @@ and [<ReferenceEquality; CLIMutable>] GroupState =
       Order : int64
       Id : uint64
       Name : string }
+
+    /// Copy a group state such as when, say, you need it to be mutated with reflection but you need to preserve persistence.
+    static member copy this =
+        { this with GroupState.Dispatcher = this.Dispatcher }
 
     /// Try to get an xtension property and its type information.
     static member tryGetProperty (propertyName, groupState, propertyRef : Property outref) =
@@ -1100,10 +1115,6 @@ and [<ReferenceEquality; CLIMutable>] GroupState =
     static member detachProperty name groupState =
         let xtension = Xtension.detachProperty name groupState.Xtension
         { groupState with GroupState.Xtension = xtension }
-
-    /// Copy a group such as when, say, you need it to be mutated with reflection but you need to preserve persistence.
-    static member copy this =
-        { this with GroupState.Dispatcher = this.Dispatcher }
 
     /// Make a group state value.
     static member make nameOpt (dispatcher : GroupDispatcher) =
@@ -1180,6 +1191,7 @@ and [<ReferenceEquality; CLIMutable>] EntityState =
     member this.EnabledLocal with get () = this.Transform.EnabledLocal and set value = this.Transform.EnabledLocal <- value
     member this.Visible with get () = this.Transform.Visible and set value = this.Transform.Visible <- value
     member this.VisibleLocal with get () = this.Transform.VisibleLocal and set value = this.Transform.VisibleLocal <- value
+    member this.CastShadow with get () = this.Transform.CastShadow and set value = this.Transform.CastShadow <- value
     member this.Pickable with get () = this.Transform.Pickable and internal set value = this.Transform.Pickable <- value
     member this.AlwaysUpdate with get () = this.Transform.AlwaysUpdate and set value = this.Transform.AlwaysUpdate <- value
     member this.AlwaysRender with get () = this.Transform.AlwaysRender and set value = this.Transform.AlwaysRender <- value
@@ -1207,7 +1219,7 @@ and [<ReferenceEquality; CLIMutable>] EntityState =
     /// This is used when we want to retain an old version of an entity state in face of mutation.
     static member inline diverge (entityState : EntityState) =
         let entityState' = EntityState.copy entityState
-        entityState.Transform.InvalidateFast () // OPTIMIZATION: invalidate fast.
+        Transform.invalidateFastInternal &entityState.Transform // OPTIMIZATION: invalidate fast.
         entityState'
 
     /// Check that there exists an xtenstion property that is a runtime property.
@@ -1342,7 +1354,7 @@ and [<TypeConverter (typeof<GameConverter>)>] Game (gameAddress : Game Address) 
     /// Derive a screen from the game.
     static member (/) (game : Game, screenName) = let _ = game in Screen (rtoa [|Constants.Engine.GameName; screenName|])
 
-    /// Concatenate an address with a game's address, taking the type of first address.
+    /// Concatenate an address with a game's address.
     static member (-->) (address : 'a Address, game : Game) =
         // HACK: anonymizes address when entity is null due to internal engine trickery.
         if isNull (game :> obj) then Address.anonymize address else acatf address game.GameAddress
@@ -1441,7 +1453,7 @@ and [<TypeConverter (typeof<ScreenConverter>)>] Screen (screenAddress) =
     /// Derive a group from its screen.
     static member (/) (screen : Screen, groupName) = Group (atoa<Screen, Group> screen.ScreenAddress --> ntoa groupName)
 
-    /// Concatenate an address with a screen's address, taking the type of first address.
+    /// Concatenate an address with a screen's address.
     static member (-->) (address : 'a Address, screen : Screen) =
         // HACK: anonymizes address when screen is null due to internal engine trickery.
         if isNull (screen :> obj) then Address.anonymize address else acatf address screen.ScreenAddress
@@ -1542,7 +1554,7 @@ and [<TypeConverter (typeof<GroupConverter>)>] Group (groupAddress) =
     /// Derive an entity from its group.
     static member (/) (group : Group, entityName) = Entity (atoa<Group, Entity> group.GroupAddress --> ntoa entityName)
 
-    /// Concatenate an address with a group's address, taking the type of first address.
+    /// Concatenate an address with a group's address.
     static member (-->) (address : 'a Address, group : Group) =
         // HACK: anonymizes address when group is null due to internal engine trickery.
         if isNull (group :> obj) then Address.anonymize address else acatf address group.GroupAddress
@@ -1666,7 +1678,7 @@ and [<TypeConverter (typeof<EntityConverter>)>] Entity (entityAddress) =
     /// Derive an entity from its parent entity.
     static member (/) (parentEntity : Entity, entityName) = Entity (parentEntity.EntityAddress --> ntoa entityName)
 
-    /// Concatenate an address with an entity, taking the type of first address.
+    /// Concatenate an address with an entity.
     static member (-->) (address : 'a Address, entity : Entity) =
         // HACK: anonymizes address when entity is null due to internal engine trickery.
         if isNull (entity :> obj) then Address.anonymize address else acatf address entity.EntityAddress
@@ -1819,10 +1831,15 @@ and [<ReferenceEquality>] internal Subsystems =
 
 /// Keeps the World from occupying more than two cache lines.
 and [<ReferenceEquality>] internal WorldExtension =
-    { mutable ContextImNui : Address
+    { // cache line 1 (assuming 16 byte header)
+      mutable ContextImNui : Address
       mutable RecentImNui : Address
       mutable SimulantImNuis : SUMap<Address, SimulantImNui>
       mutable SubscriptionImNuis : SUMap<string * Address * Address, SubscriptionImNui>
+      GeometryViewport : Viewport
+      RasterViewport : Viewport
+      // cache line 2
+      OuterViewport : Viewport
       DestructionListRev : Simulant list
       Dispatchers : Dispatchers
       Plugin : NuPlugin
@@ -1996,6 +2013,15 @@ and [<ReferenceEquality>] World =
 
     member internal this.SubscriptionImNuis =
         this.WorldExtension.SubscriptionImNuis
+
+    member this.GeometryViewport =
+        this.WorldExtension.GeometryViewport
+
+    member this.RasterViewport =
+        this.WorldExtension.RasterViewport
+
+    member this.OuterViewport =
+        this.WorldExtension.OuterViewport
 
 #if DEBUG
     member internal this.Choose () =

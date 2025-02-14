@@ -1,5 +1,5 @@
 ﻿// Nu Game Engine.
-// Copyright (C) Bryan Edds, 2013-2023.
+// Copyright (C) Bryan Edds.
 
 namespace Nu
 open System
@@ -68,15 +68,10 @@ module WorldGroupModule =
 
         /// Set an xtension property value.
         member this.Set<'a> propertyName (value : 'a) world =
-            let property = { PropertyType = typeof<'a>; PropertyValue = value }
-            World.setGroupXtensionProperty propertyName property this world |> snd'
+            World.setGroupXtensionValue<'a> propertyName value this world
 
         /// Check that a group is selected.
-        member this.GetSelected world =
-            let gameState = World.getGameState Game.Handle world
-            match gameState.SelectedScreenOpt with
-            | Some screen when this.Screen.Name = screen.Name -> true
-            | _ -> false
+        member this.GetSelected world = World.getGroupSelected this world
 
         /// Check that a group exists in the world.
         member this.GetExists world = World.getGroupExists this world
@@ -172,7 +167,10 @@ module WorldGroupModule =
                     else failwith ("Group '" + scstring group + "' already exists and cannot be created."); world
                 else world
             let world = World.addGroup false groupState group world
-            let world = if WorldModule.UpdatingSimulants then WorldModule.tryProcessGroup group world else world
+            let world =
+                if WorldModule.UpdatingSimulants && group.GetSelected world
+                then WorldModule.tryProcessGroup group world
+                else world
             (group, world)
 
         /// Create a group from a simulant descriptor.
@@ -246,7 +244,10 @@ module WorldGroupModule =
                         World.renameEntityImmediate child destination world)
                         world children
                 let world = World.destroyGroupImmediate source world
-                let world = if WorldModule.UpdatingSimulants then WorldModule.tryProcessGroup destination world else world
+                let world =
+                    if WorldModule.UpdatingSimulants && source.GetSelected world
+                    then WorldModule.tryProcessGroup destination world
+                    else world
                 world
             | None -> world
 
@@ -255,29 +256,29 @@ module WorldGroupModule =
             World.frame (World.renameGroupImmediate source destination) Game.Handle world
 
         /// Write a group to a group descriptor.
-        static member writeGroup writePropagationHistory (groupDescriptor : GroupDescriptor) group world =
+        static member writeGroup (groupDescriptor : GroupDescriptor) group world =
             let groupState = World.getGroupState group world
             let groupDispatcherName = getTypeName groupState.Dispatcher
             let groupDescriptor = { groupDescriptor with GroupDispatcherName = groupDispatcherName }
-            let getGroupProperties = Reflection.writePropertiesFromTarget tautology3 groupDescriptor.GroupProperties groupState
+            let getGroupProperties = Reflection.writePropertiesFromTarget (fun name _ _ -> name <> "Order") groupDescriptor.GroupProperties groupState
             let groupDescriptor = { groupDescriptor with GroupProperties = getGroupProperties }
             let entities = World.getEntitiesSovereign group world
-            { groupDescriptor with EntityDescriptors = World.writeEntities writePropagationHistory entities world }
+            { groupDescriptor with EntityDescriptors = World.writeEntities false true entities world }
 
         /// Write multiple groups to a screen descriptor.
-        static member writeGroups writePropagationHistory groups world =
+        static member writeGroups groups world =
             groups |>
             Seq.sortBy (fun (group : Group) -> group.GetOrder world) |>
             Seq.filter (fun (group : Group) -> group.GetPersistent world && not (group.GetProtected world)) |>
-            Seq.fold (fun groupDescriptors group -> World.writeGroup writePropagationHistory GroupDescriptor.empty group world :: groupDescriptors) [] |>
+            Seq.fold (fun groupDescriptors group -> World.writeGroup GroupDescriptor.empty group world :: groupDescriptors) [] |>
             Seq.rev |>
             Seq.toList
 
         /// Write a group to a file.
-        static member writeGroupToFile writePropagationHistory (filePath : string) group world =
+        static member writeGroupToFile (filePath : string) group world =
             let filePathTmp = filePath + ".tmp"
             let prettyPrinter = (SyntaxAttribute.defaultValue typeof<GameDescriptor>).PrettyPrinter
-            let groupDescriptor = World.writeGroup writePropagationHistory GroupDescriptor.empty group world
+            let groupDescriptor = World.writeGroup GroupDescriptor.empty group world
             let groupDescriptorStr = scstring groupDescriptor
             let groupDescriptorPretty = PrettyPrinter.prettyPrint groupDescriptorStr prettyPrinter
             File.WriteAllText (filePathTmp, groupDescriptorPretty)
@@ -311,10 +312,13 @@ module WorldGroupModule =
             let world = World.addGroup true groupState group world
 
             // read the group's entities
-            let world = World.readEntities groupDescriptor.EntityDescriptors group world |> snd
+            let world = World.readEntities false true groupDescriptor.EntityDescriptors group world |> snd
 
             // try to process ImNui group first time if in the middle of simulant update phase
-            let world = if WorldModule.UpdatingSimulants then WorldModule.tryProcessGroup group world else world
+            let world =
+                if WorldModule.UpdatingSimulants && group.GetSelected world
+                then WorldModule.tryProcessGroup group world
+                else world
             (group, world)
 
         /// Read multiple groups from a screen descriptor.

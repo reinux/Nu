@@ -1,5 +1,5 @@
 ﻿// Nu Game Engine.
-// Copyright (C) Bryan Edds, 2013-2023.
+// Copyright (C) Bryan Edds.
 
 namespace Nu
 open System
@@ -11,13 +11,11 @@ module WorldDataToken =
     type World with
 
         static member internal renderDataToken renderPass dataToken world =
-            match dataToken with
 
-            // render sprite
+            match dataToken with
             | SpriteToken (elevation, horizon, assetTag, sprite) ->
                 World.renderLayeredSpriteFast (elevation, horizon, assetTag, &sprite.Transform, &sprite.InsetOpt, &sprite.ClipOpt, sprite.Image, &sprite.Color, sprite.Blend, &sprite.Emission, sprite.Flip, world)
 
-            // render text
             | TextToken (elevation, horizon, assetTag, text) ->
                 let renderText =
                     { Transform = text.Transform
@@ -31,7 +29,6 @@ module WorldDataToken =
                       CursorOpt = None }
                 World.enqueueLayeredOperation2d { Elevation = elevation; Horizon = horizon; AssetTag = assetTag; RenderOperation2d = RenderText renderText } world
 
-            // render 3d light
             | Light3dToken light ->
                 let renderLight =
                     { LightId = light.LightId
@@ -48,11 +45,11 @@ module WorldDataToken =
                       RenderPass = renderPass }
                 World.enqueueRenderMessage3d (RenderLight3d renderLight) world
 
-            // render billboard
             | BillboardToken billboard ->
                 let renderBillboard =
-                    { Presence = billboard.Presence
-                      ModelMatrix = billboard.ModelMatrix
+                    { ModelMatrix = billboard.ModelMatrix
+                      CastShadow = billboard.CastShadow
+                      Presence = billboard.Presence
                       InsetOpt = billboard.InsetOpt
                       MaterialProperties = billboard.MaterialProperties
                       Material = billboard.Material
@@ -61,10 +58,10 @@ module WorldDataToken =
                       RenderPass = renderPass }
                 World.enqueueRenderMessage3d (RenderBillboard renderBillboard) world
 
-            // render static model
             | StaticModelToken staticModel ->
                 let renderStaticModel =
                     { ModelMatrix = staticModel.ModelMatrix
+                      CastShadow = staticModel.CastShadow
                       Presence = staticModel.Presence
                       InsetOpt = staticModel.InsetOpt
                       MaterialProperties = staticModel.MaterialProperties
@@ -73,10 +70,10 @@ module WorldDataToken =
                       RenderPass = renderPass }
                 World.enqueueRenderMessage3d (RenderStaticModel renderStaticModel) world
 
-            // render static model surface
             | StaticModelSurfaceToken staticModelSurface ->
                 let renderStaticModelSurface =
                     { ModelMatrix = staticModelSurface.ModelMatrix
+                      CastShadow = staticModelSurface.CastShadow
                       Presence = staticModelSurface.Presence
                       InsetOpt = staticModelSurface.InsetOpt
                       MaterialProperties = staticModelSurface.MaterialProperties
@@ -87,16 +84,15 @@ module WorldDataToken =
                       RenderPass = renderPass }
                 World.enqueueRenderMessage3d (RenderStaticModelSurface renderStaticModelSurface) world
 
-            // nothing to do
-            | EffectToken (_, _, _) -> ()
+            | EffectToken (_, _, _) ->
+                () // nothing to do
 
-            // nothing to do
-            | EmitterToken (_, _) -> ()
+            | EmitterToken (_, _) ->
+                () // nothing to do
 
-            // nothing to do
-            | TagToken (_, _) -> ()
+            | TagToken (_, _) ->
+                () // nothing to do
 
-            // recur
             | DataTokens dataTokens ->
                 for dataToken in dataTokens do
                     World.renderDataToken renderPass dataToken world

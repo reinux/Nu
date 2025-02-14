@@ -1,5 +1,5 @@
 ﻿// Nu Game Engine.
-// Copyright (C) Bryan Edds, 2013-2023.
+// Copyright (C) Bryan Edds.
 
 namespace Nu
 open System
@@ -81,46 +81,55 @@ module Assimp =
              m.A4, m.B4, m.C4, m.D4)
 
     let internal ComputePositionKeyFrameIndex (animationTime : single, keys : Assimp.VectorKey array) =
+        let last = dec keys.Length
         let mutable low = 0
-        let mutable high = keys.Length - 1
+        let mutable high = last
         let mutable found = false
         let mutable i = 0
         while low <= high && not found do
             let mid = (low + high) / 2
-            let midTime = single keys.[inc mid].Time
-            if animationTime < midTime then high <- mid - 1
-            elif animationTime > midTime then low <- mid + 1
-            else found <- true; i <- mid
+            if mid < last then
+                let midTime = single keys.[inc mid].Time
+                if animationTime < midTime then high <- mid - 1
+                elif animationTime > midTime then low <- mid + 1
+                else found <- true; i <- mid
+            else found <- true; i <- last
         if not found then
             i <- if animationTime < single keys.[inc low].Time then low else dec low
         i
 
     let internal ComputeRotationKeyFrameIndex (animationTime : single, keys : Assimp.QuaternionKey array) =
+        let last = dec keys.Length
         let mutable low = 0
-        let mutable high = keys.Length - 1
+        let mutable high = last
         let mutable found = false
         let mutable i = 0
         while low <= high && not found do
             let mid = (low + high) / 2
-            let midTime = single keys.[inc mid].Time
-            if animationTime < midTime then high <- mid - 1
-            elif animationTime > midTime then low <- mid + 1
-            else found <- true; i <- mid
+            if mid < last then
+                let midTime = single keys.[inc mid].Time
+                if animationTime < midTime then high <- mid - 1
+                elif animationTime > midTime then low <- mid + 1
+                else found <- true; i <- mid
+            else found <- true; i <- last
         if not found then
             i <- if animationTime < single keys.[inc low].Time then low else dec low
         i
 
     let internal ComputeScalingKeyFrameIndex (animationTime : single, keys : Assimp.VectorKey array) =
+        let last = dec keys.Length
         let mutable low = 0
-        let mutable high = keys.Length - 1
+        let mutable high = last
         let mutable found = false
         let mutable i = 0
         while low <= high && not found do
             let mid = (low + high) / 2
-            let midTime = single keys.[inc mid].Time
-            if animationTime < midTime then high <- mid - 1
-            elif animationTime > midTime then low <- mid + 1
-            else found <- true; i <- mid
+            if mid < last then
+                let midTime = single keys.[inc mid].Time
+                if animationTime < midTime then high <- mid - 1
+                elif animationTime > midTime then low <- mid + 1
+                else found <- true; i <- mid
+            else found <- true; i <- last
         if not found then
             i <- if animationTime < single keys.[inc low].Time then low else dec low
         i
@@ -247,11 +256,27 @@ module AssimpExtensions =
               Scaling = scaling
               Weight = weight }
 
-    let private CreateAnimationDecompositionList =
-        Func<_> (fun () -> List<AnimationDecomposition> ())
-
     let private AnimationChannelsCached =
         ConcurrentDictionary<_, _> HashIdentity.Reference
+
+    type Assimp.Quaternion with
+        
+        member this.Scale (scalar : single) =
+            Assimp.Quaternion (this.W * scalar, this.X * scalar, this.Y * scalar, this.Z * scalar)
+
+        member this.Add (that : Assimp.Quaternion) =
+            Assimp.Quaternion (this.W + that.W, this.X + that.X, this.Y + that.Y, this.Z + that.Z)
+
+        member this.Abs =
+            if this.W < 0.0f then this.Scale -1.0f else this
+
+        member this.Dot (q2 : Assimp.Quaternion) =
+            this.W * q2.W + this.X * q2.X + this.Y * q2.Y + this.Z * q2.Z
+
+        member this.Normalized =
+            let mutable copy = this
+            this.Normalize ()
+            copy
 
     /// Material extensions.
     type Assimp.Material with
@@ -448,9 +473,9 @@ module AssimpExtensions =
              parentTransform : Assimp.Matrix4x4,
              scene : Assimp.Scene) =
 
-            // compute local transform of the current node.
+            // compute animation decompositions of the current node.
             let mutable nodeTransform = node.Transform // NOTE: if the node is animated, its transform is replaced by that animation entirely.
-            use decompositions = new PooledCollection<_, _> (CreateAnimationDecompositionList)
+            let decompositions = List ()
             for animation in animations do
                 let animationStartTime = animation.StartTime.Seconds
                 let animationLifeTimeOpt = Option.map (fun (lifeTime : GameTime) -> lifeTime.Seconds) animation.LifeTimeOpt
@@ -478,22 +503,31 @@ module AssimpExtensions =
                         let rotation = Assimp.InterpolateRotation (localTimeScaled, animationChannel.RotationKeys)
                         let scaling = Assimp.InterpolateScaling (localTimeScaled, animationChannel.ScalingKeys)
                         decompositions.Add (AnimationDecomposition.make translation rotation scaling animation.Weight)
+
+            // compute local transform from said decompositions
+            // TODO: consider using the more accurate approach discussed here -
+            // https://theorangeduck.com/page/quaternion-weighted-average
             if decompositions.Count > 0 then
                 let mutable translationAccumulated = Assimp.Vector3D 0.0f
-                let mutable rotationAccumulated = Assimp.Quaternion (1.0f, 0.0f, 0.0f, 0.0f)
-                let mutable scalingAccumulated = Assimp.Vector3D 1.0f
+                let mutable rotationAccumulated = Assimp.Quaternion (0.0f, 0.0f, 0.0f, 0.0f)
+                let mutable scalingAccumulated = Assimp.Vector3D 0.0f
                 let mutable weightAccumulated = 0.0f
-                for decomposition in decompositions.Deref do
-                    let factor = weightAccumulated / (weightAccumulated + decomposition.Weight)
-                    let factor2 = 1.0f - factor
-                    translationAccumulated <- translationAccumulated * factor + decomposition.Translation * factor2
-                    rotationAccumulated <- Assimp.Quaternion.Slerp (rotationAccumulated, decomposition.Rotation, factor2)
-                    scalingAccumulated <- scalingAccumulated * factor + decomposition.Scaling * factor2
+                for decomposition in decompositions do
+                    translationAccumulated <- translationAccumulated + decomposition.Translation * decomposition.Weight
+                    rotationAccumulated <-
+                        if rotationAccumulated.Dot decomposition.Rotation < 0.0f
+                        then rotationAccumulated.Add (decomposition.Rotation.Scale -decomposition.Weight)
+                        else rotationAccumulated.Add (decomposition.Rotation.Scale +decomposition.Weight)
+                    scalingAccumulated <- scalingAccumulated + decomposition.Scaling * decomposition.Weight
                     weightAccumulated <- weightAccumulated + decomposition.Weight
-                nodeTransform <-
+                scalingAccumulated <- scalingAccumulated / weightAccumulated
+                rotationAccumulated <- rotationAccumulated.Scale (1.0f / weightAccumulated)
+                rotationAccumulated <- rotationAccumulated.Abs.Normalized
+                translationAccumulated <- translationAccumulated / weightAccumulated
+                nodeTransform <- // TODO: see if there's a faster way to construct a TRS matrix here.
                     Assimp.Matrix4x4.FromScaling scalingAccumulated *
                     Assimp.Matrix4x4 (rotationAccumulated.GetMatrix ()) *
-                    Assimp.Matrix4x4.FromTranslation translationAccumulated // TODO: see if there's a faster way to construct a TRS matrix here.
+                    Assimp.Matrix4x4.FromTranslation translationAccumulated
 
             // compute current transform and assign the final bone transform where applicable
             let accumulatedTransform = nodeTransform * parentTransform

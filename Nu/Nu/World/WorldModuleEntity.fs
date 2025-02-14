@@ -1,5 +1,5 @@
 ﻿// Nu Game Engine.
-// Copyright (C) Bryan Edds, 2013-2023.
+// Copyright (C) Bryan Edds.
 
 namespace Nu
 open System
@@ -131,8 +131,9 @@ module WorldModuleEntity =
                 let changeData = { Name = propertyName; Previous = previousValue; Value = propertyValue }
                 let entityNames = Address.getNames entity.EntityAddress
                 let world =
-                    if  BodyPropertyAffectingPropertyNames.Contains propertyName &&
-                        (World.getEntityFacetNames entity world : string Set).Contains "RigidBodyFacet" then
+                    // OPTIMIZATION: this works together with RigidBodyFacet to reduce the bookkeeping footprint of its
+                    // subscriptions. This does have some run-time performance cost associated with it, however.
+                    if BodyPropertyAffectingPropertyNames.Contains propertyName then
                         let changeEventAddress = rtoa<ChangeData> (Array.append [|Constants.Lens.ChangeName; "BodyPropertiesAffecting"; Constants.Lens.EventName|] entityNames)
                         let eventTrace = EventTrace.debug "World" "publishEntityChange" "BodyPropertiesAffecting" EventTrace.empty
                         World.publishPlus changeData changeEventAddress eventTrace entity false false world
@@ -238,6 +239,12 @@ module WorldModuleEntity =
 
         static member internal getEntityExists entity world =
             notNull (World.getEntityStateOpt entity world :> obj)
+
+        static member internal getEntitySelected (entity : Entity) world =
+            let gameState = World.getGameState Game.Handle world
+            match gameState.SelectedScreenOpt with
+            | Some selectedScreen when entity.Screen.Name = selectedScreen.Name -> true
+            | _ -> false
 
         static member internal getEntityImperative entity world =
             (World.getEntityState entity world).Imperative
@@ -360,12 +367,15 @@ module WorldModuleEntity =
         static member internal getEntityElevationLocal entity world = (World.getEntityState entity world).ElevationLocal
         static member internal getEntityOverflow entity world = (World.getEntityState entity world).Transform.Overflow
         static member internal getEntityPresence entity world = (World.getEntityState entity world).Presence
+        static member internal getEntityMountOpt entity world = (World.getEntityState entity world).MountOpt
+        static member internal getEntityPropagationSourceOpt entity world = (World.getEntityState entity world).PropagationSourceOpt
         static member internal getEntityAbsolute entity world = (World.getEntityState entity world).Absolute
         static member internal getEntityPublishChangeEvents entity world = (World.getEntityState entity world).PublishChangeEvents
         static member internal getEntityEnabled entity world = (World.getEntityState entity world).Enabled
         static member internal getEntityEnabledLocal entity world = (World.getEntityState entity world).EnabledLocal
         static member internal getEntityVisible entity world = (World.getEntityState entity world).Visible
         static member internal getEntityVisibleLocal entity world = (World.getEntityState entity world).VisibleLocal
+        static member internal getEntityCastShadow entity world = (World.getEntityState entity world).CastShadow
         static member internal getEntityPickable entity world = (World.getEntityState entity world).Pickable
         static member internal getEntityAlwaysUpdate entity world = (World.getEntityState entity world).AlwaysUpdate
         static member internal getEntityAlwaysRender entity world = (World.getEntityState entity world).AlwaysRender
@@ -381,8 +391,6 @@ module WorldModuleEntity =
         static member internal getEntityLight entity world = (World.getEntityState entity world).Light
         static member internal getEntityOptimized entity world = (World.getEntityState entity world).Optimized
         static member internal getEntityDestroying (entity : Entity) world = List.exists ((=) (entity :> Simulant)) (World.getDestructionListRev world)
-        static member internal getEntityMountOpt entity world = (World.getEntityState entity world).MountOpt
-        static member internal getEntityPropagationSourceOpt entity world = (World.getEntityState entity world).PropagationSourceOpt
         static member internal getEntityOverlayNameOpt entity world = (World.getEntityState entity world).OverlayNameOpt
         static member internal getEntityFacetNames entity world = (World.getEntityState entity world).FacetNames
         static member internal getEntityPropagatedDescriptorOpt entity world = (World.getEntityState entity world).PropagatedDescriptorOpt
@@ -507,7 +515,7 @@ module WorldModuleEntity =
 
         static member internal getEntityAffineMatrixLocal entity world =
             let entityState = World.getEntityState entity world
-            Matrix4x4.CreateFromTrs (entityState.PositionLocal, entityState.RotationLocal, entityState.ScaleLocal)
+            Matrix4x4.CreateAffine (entityState.PositionLocal, entityState.RotationLocal, entityState.ScaleLocal)
 
         static member
 #if !DEBUG
@@ -515,9 +523,8 @@ module WorldModuleEntity =
 #endif
             internal getEntityTransform entity world =
             let entityState = World.getEntityState entity world
-            let transform = &entityState.Transform
-            transform.CleanRotationMatrix () // OPTIMIZATION: ensure rotation matrix is clean so that redundant cleans don't happen when transform is handed out.
-            transform
+            Transform.cleanRotationMatrixInternal &entityState.Transform // OPTIMIZATION: ensure rotation matrix is clean so that redundant cleans don't happen when transform is handed out.
+            entityState.Transform
 
         /// Check that an entity has any children.
         static member getEntityHasChildren (entity : Entity) world =
@@ -670,7 +677,7 @@ module WorldModuleEntity =
                     if World.getEntityExists source world then
                         match World.getEntityPropagatedDescriptorOpt source world with
                         | None ->
-                            let propagatedDescriptor = World.writeEntity false EntityDescriptor.empty source world
+                            let propagatedDescriptor = World.writeEntity false false EntityDescriptor.empty source world
                             World.setEntityPropagatedDescriptorOpt (Some propagatedDescriptor) source world |> snd'
                         | Some _ -> world
                     else world
@@ -856,7 +863,7 @@ module WorldModuleEntity =
         static member internal setEntityPresence (value : Presence) entity world =
             let entityState = World.getEntityState entity world
             let previous = entityState.Presence
-            if presenceNeq value previous && (value.OmnipresentType || not entityState.Absolute) then // a transform that is Absolute must remain Omnipresent then
+            if presenceNeq value previous && (value.IsOmnipresent || not entityState.Absolute) then // a transform that is Absolute must remain Omnipresent then
                 let visibleOld = entityState.VisibleSpatial
                 let staticOld = entityState.StaticSpatial
                 let lightProbeOld = entityState.LightProbe
@@ -1482,6 +1489,19 @@ module WorldModuleEntity =
                 struct (true, world)
             else struct (false, world)
 
+        static member internal setEntityCastShadow value entity world =
+            let entityState = World.getEntityState entity world
+            let previous = entityState.CastShadow
+            if value <> previous then
+                if entityState.Imperative then
+                    entityState.CastShadow <- value
+                    struct (true, world)
+                else
+                    let entityState = EntityState.diverge entityState
+                    entityState.CastShadow <- value
+                    struct (true, World.setEntityState entityState entity world)
+            else struct (false, world)
+
         static member internal setEntityPickable value entity world =
             let entityState = World.getEntityState entity world
             let previous = entityState.Pickable
@@ -1615,7 +1635,7 @@ module WorldModuleEntity =
                     match entityOpt with
                     | Some entity ->
                         let world = World.setEntityState entityState entity world
-                        let world = facet.Register (entity, world)
+                        let world = facet.Unregister (entity, world)
                         let world =
                             if WorldModule.getSelected entity world
                             then facet.UnregisterPhysics (entity, world)
@@ -1792,7 +1812,13 @@ module WorldModuleEntity =
                     match valueObj with
                     | :? 'a as value -> value
                     | null -> null :> obj :?> 'a
-                    | value -> value |> valueToSymbol |> symbolToValue
+                    | value ->
+                        let value' = value |> valueToSymbol |> symbolToValue
+                        match property.PropertyValue with
+                        | :? DesignerProperty as dp -> dp.DesignerType <- typeof<'a>; dp.DesignerValue <- value'
+                        | :? ComputedProperty -> () // nothing to do
+                        | _ -> property.PropertyType <- typeof<'a>; property.PropertyValue <- value'
+                        value'
                 else
                     let value =
                         match entityStateOpt.OverlayNameOpt with
@@ -1861,7 +1887,7 @@ module WorldModuleEntity =
                         else struct (true, false, previous, world)
                 else
                     let previous = propertyOld.PropertyValue
-                    if CoreOperators.(=/=) property.PropertyValue previous then
+                    if property.PropertyValue =/= previous then
                         if entityState.Imperative then
                             propertyOld.PropertyValue <- property.PropertyValue
                             struct (true, true, previous, world)
@@ -2014,13 +2040,13 @@ module WorldModuleEntity =
             let entityState = World.getEntityState entity world
             let mutable transform = &entityState.Transform
             let presence = transform.Presence
-            presence.OmnipresentType || World.boundsInView2dAbsolute transform.Bounds2d.Box2 world
+            presence.IsOmnipresent || World.boundsInView2dAbsolute transform.Bounds2d.Box2 world
 
         static member internal getEntityInView2dRelative entity world =
             let entityState = World.getEntityState entity world
             let mutable transform = &entityState.Transform
             let presence = transform.Presence
-            presence.OmnipresentType || World.boundsInView2dRelative transform.Bounds2d.Box2 world
+            presence.IsOmnipresent || World.boundsInView2dRelative transform.Bounds2d.Box2 world
 
         static member internal getEntityInPlay2dAbsolute entity world =
             World.getEntityInView2dAbsolute entity world
@@ -2032,7 +2058,7 @@ module WorldModuleEntity =
             let entityState = World.getEntityState entity world
             let mutable transform = &entityState.Transform
             let presence = transform.Presence
-            presence.OmnipresentType || World.boundsInPlay3d transform.Bounds3d world
+            presence.IsOmnipresent || World.boundsInPlay3d transform.Bounds3d world
 
         static member internal getEntityInView3d entity world =
             let entityState = World.getEntityState entity world
@@ -2040,7 +2066,7 @@ module WorldModuleEntity =
             let light = entityState.Dispatcher.Light
             let mutable transform = &entityState.Transform
             let presence = transform.Presence
-            presence.OmnipresentType || World.boundsInView3d lightProbe light presence transform.Bounds3d world
+            presence.IsOmnipresent || World.boundsInView3d lightProbe light presence transform.Bounds3d world
 
         static member internal getEntityAttributesInferred (entity : Entity) world =
             let dispatcher = World.getEntityDispatcher entity world
@@ -2258,7 +2284,7 @@ module WorldModuleEntity =
             let entityState =
                 dispatcherTypes |>
                 List.map (fun ty -> (Reflection.getIntrinsicFacetNamesNoInherit ty, ty)) |>
-                List.fold (fun entityState (facetNames, ty) -> 
+                List.fold (fun entityState (facetNames, ty) ->
                     let entityState = Reflection.attachIntrinsicFacetsViaNames id dispatcherMap facetMap facetNames entityState world
                     let definitions = Reflection.getPropertyDefinitionsNoInherit ty
                     Reflection.attachPropertiesViaDefinitions id definitions entityState world)
@@ -2312,7 +2338,10 @@ module WorldModuleEntity =
             let world = World.updateEntityPublishUpdateFlag entity world |> snd'
 
             // process entity first time if in the middle of simulant update phase
-            let world = if WorldModule.UpdatingSimulants then WorldModule.tryProcessEntity entity world else world
+            let world =
+                if WorldModule.UpdatingSimulants && World.getEntitySelected entity world
+                then WorldModule.tryProcessEntity entity world
+                else world
 
             // propagate properties
             let world =
@@ -2328,7 +2357,7 @@ module WorldModuleEntity =
             let world =
                 match World.getEntityPropagatedDescriptorOpt entity world with
                 | None when World.hasPropagationTargets entity world ->
-                    let propagatedDescriptor = World.writeEntity false EntityDescriptor.empty entity world
+                    let propagatedDescriptor = World.writeEntity false false EntityDescriptor.empty entity world
                     World.setEntityPropagatedDescriptorOpt (Some propagatedDescriptor) entity world |> snd'
                 | Some _ | None -> world
 
@@ -2372,7 +2401,10 @@ module WorldModuleEntity =
                         let destination = destination / child.Name
                         World.renameEntityImmediate child destination world)
                         world children
-                let world = if WorldModule.UpdatingSimulants then WorldModule.tryProcessEntity destination world else world
+                let world =
+                    if WorldModule.UpdatingSimulants && World.getEntitySelected destination world
+                    then WorldModule.tryProcessEntity destination world
+                    else world
                 let world =
                     Seq.fold (fun world target ->
                         if World.getEntityExists target world
@@ -2382,7 +2414,7 @@ module WorldModuleEntity =
                 let world =
                     match World.getEntityPropagatedDescriptorOpt destination world with
                     | None when World.hasPropagationTargets destination world ->
-                        let propagatedDescriptor = World.writeEntity false EntityDescriptor.empty destination world
+                        let propagatedDescriptor = World.writeEntity false false EntityDescriptor.empty destination world
                         World.setEntityPropagatedDescriptorOpt (Some propagatedDescriptor) destination world |> snd'
                     | Some _ | None -> world
                 world
@@ -2397,19 +2429,17 @@ module WorldModuleEntity =
             if dispatcherNameCurrent <> dispatcherName then
                 let dispatchers = World.getEntityDispatchers world
                 if dispatchers.ContainsKey dispatcherName then
-                    let entityDescriptor = World.writeEntity true EntityDescriptor.empty entity world
+                    let entityDescriptor = World.writeEntity true true EntityDescriptor.empty entity world
                     let entityDescriptor = { entityDescriptor with EntityDispatcherName = dispatcherName }
-                    let order = World.getEntityOrder entity world
                     let world = World.destroyEntityImmediate entity world
-                    let world = World.readEntity entityDescriptor (Some entity.Name) entity.Parent world |> snd
-                    let world = World.setEntityOrder order entity world |> snd'
+                    let world = World.readEntity true true entityDescriptor (Some entity.Name) entity.Parent world |> snd
                     let world = World.autoBoundsEntity entity world
                     world
                 else world
             else world
 
         /// Write an entity to an entity descriptor.
-        static member writeEntity writePropagationHistory (entityDescriptor : EntityDescriptor) (entity : Entity) world =
+        static member writeEntity writeOrder writePropagationHistory (entityDescriptor : EntityDescriptor) (entity : Entity) world =
             let overlayer = World.getOverlayer world
             let entityState = World.getEntityState entity world
             let entityDispatcherName = getTypeName entityState.Dispatcher
@@ -2420,40 +2450,39 @@ module WorldModuleEntity =
                 | Some overlayName -> Some (Overlayer.getOverlaySymbols overlayName entityFacetNames overlayer)
                 | None -> None
             let shouldWriteProperty = fun propertyName propertyType (propertyValue : obj) ->
-                if propertyName = Constants.Engine.OverlayNameOptPropertyName && propertyType = typeof<string option> then
-                    let defaultOverlayNameOpt = World.getEntityDefaultOverlayName entityDispatcherName world
-                    defaultOverlayNameOpt <> (propertyValue :?> string option)
+                if propertyName = "Order" then
+                    writeOrder && entityState.Order <> 0
+                elif propertyName = "PropagatedDescriptorOpt" then
+                    writePropagationHistory && entityState.PropagatedDescriptorOpt.IsSome
+                elif propertyName = Constants.Engine.OverlayNameOptPropertyName && propertyType = typeof<string option> then
+                    World.getEntityDefaultOverlayName entityDispatcherName world <> (propertyValue :?> string option)
                 else
                     match overlaySymbolsOpt with
                     | Some overlaySymbols -> Overlayer.shouldPropertySerialize propertyName propertyType entityState overlaySymbols
                     | None -> true
             let entityProperties = Reflection.writePropertiesFromTarget shouldWriteProperty entityDescriptor.EntityProperties entityState
-            let entityProperties =
-                if not writePropagationHistory
-                then Map.remove Constants.Engine.PropagatedDescriptorOptPropertyName entityProperties
-                else entityProperties
             let entityDescriptor = { entityDescriptor with EntityProperties = entityProperties }
             let entityDescriptor =
                 if not (Gen.isNameGenerated entity.Name)
                 then EntityDescriptor.setNameOpt (Some entity.Name) entityDescriptor
                 else entityDescriptor
             let entities = World.getEntityChildren entity world
-            { entityDescriptor with EntityDescriptors = World.writeEntities writePropagationHistory entities world }
+            { entityDescriptor with EntityDescriptors = World.writeEntities writeOrder writePropagationHistory entities world }
 
         /// Write multiple entities to a group descriptor.
-        static member writeEntities writePropagationHistory entities world =
+        static member writeEntities writeOrder writePropagationHistory entities world =
             entities |>
             Seq.sortBy (fun (entity : Entity) -> World.getEntityOrder entity world) |>
             Seq.filter (fun (entity : Entity) -> World.getEntityPersistent entity world && not (World.getEntityProtected entity world)) |>
-            Seq.fold (fun entityDescriptors entity -> World.writeEntity writePropagationHistory EntityDescriptor.empty entity world :: entityDescriptors) [] |>
+            Seq.fold (fun entityDescriptors entity -> World.writeEntity writeOrder writePropagationHistory EntityDescriptor.empty entity world :: entityDescriptors) [] |>
             Seq.rev |>
             Seq.toList
 
         /// Write an entity to a file.
-        static member writeEntityToFile writePropagationHistory (filePath : string) enity world =
+        static member writeEntityToFile writeOrder writePropagationHistory (filePath : string) enity world =
             let filePathTmp = filePath + ".tmp"
             let prettyPrinter = (SyntaxAttribute.defaultValue typeof<GameDescriptor>).PrettyPrinter
-            let enityDescriptor = World.writeEntity writePropagationHistory EntityDescriptor.empty enity world
+            let enityDescriptor = World.writeEntity writeOrder writePropagationHistory EntityDescriptor.empty enity world
             let enityDescriptorStr = scstring enityDescriptor
             let enityDescriptorPretty = PrettyPrinter.prettyPrint enityDescriptorStr prettyPrinter
             File.WriteAllText (filePathTmp, enityDescriptorPretty)
@@ -2461,7 +2490,12 @@ module WorldModuleEntity =
             File.Move (filePathTmp, filePath)
 
         /// Read an entity from an entity descriptor.
-        static member readEntity entityDescriptor (nameOpt : string option) (parent : Simulant) world =
+        static member readEntity tryReadOrder tryReadPropagationHistory (entityDescriptor : EntityDescriptor) (nameOpt : string option) (parent : Simulant) world =
+
+            // optionally filter entity properties
+            let entityProperties = entityDescriptor.EntityProperties
+            let entityProperties = if tryReadOrder then entityProperties else Map.remove "Order" entityDescriptor.EntityProperties
+            let entityProperties = if tryReadPropagationHistory then entityProperties else Map.remove "PropagatedDescriptorOpt" entityDescriptor.EntityProperties
 
             // make the dispatcher
             let dispatcherMap = World.getEntityDispatchers world
@@ -2492,7 +2526,7 @@ module WorldModuleEntity =
 
             // read the entity state's overlay and apply it to its facet names if applicable
             let overlayer = World.getOverlayer world
-            let entityState = Reflection.tryReadOverlayNameOptToTarget id entityDescriptor.EntityProperties entityState
+            let entityState = Reflection.tryReadOverlayNameOptToTarget id entityProperties entityState
             let entityState = if Option.isNone entityState.OverlayNameOpt then { entityState with OverlayNameOpt = defaultOverlayNameOpt } else entityState
             let entityState =
                 match (defaultOverlayNameOpt, entityState.OverlayNameOpt) with
@@ -2500,7 +2534,7 @@ module WorldModuleEntity =
                 | (_, _) -> entityState
 
             // read the entity state's facet names
-            let entityState = Reflection.readFacetNamesToTarget id entityDescriptor.EntityProperties entityState
+            let entityState = Reflection.readFacetNamesToTarget id entityProperties entityState
 
             // synchronize the entity state's facets (and attach their properties)
             let entityState =
@@ -2523,7 +2557,7 @@ module WorldModuleEntity =
             let entityNameOpt = EntityDescriptor.getNameOpt entityDescriptor
 
             // read the entity state's values
-            let entityState = Reflection.readPropertiesToTarget id entityDescriptor.EntityProperties entityState
+            let entityState = Reflection.readPropertiesToTarget id entityProperties entityState
 
             // populate local angles value from local rotation
             entityState.AnglesLocal <- entityState.RotationLocal.RollPitchYaw
@@ -2564,16 +2598,19 @@ module WorldModuleEntity =
             let world = World.addEntityToMounts mountOpt entity world
 
             // read the entity's children
-            let world = World.readEntities entityDescriptor.EntityDescriptors entity world |> snd
+            let world = World.readEntities tryReadOrder tryReadPropagationHistory entityDescriptor.EntityDescriptors entity world |> snd
 
             // process entity first time if in the middle of simulant update phase
-            let world = if WorldModule.UpdatingSimulants then WorldModule.tryProcessEntity entity world else world
+            let world =
+                if WorldModule.UpdatingSimulants && World.getEntitySelected entity world
+                then WorldModule.tryProcessEntity entity world
+                else world
 
             // insert a propagated descriptor if needed
             let world =
                 match World.getEntityPropagatedDescriptorOpt entity world with
                 | None when World.hasPropagationTargets entity world ->
-                    let propagatedDescriptor = World.writeEntity false EntityDescriptor.empty entity world
+                    let propagatedDescriptor = World.writeEntity false false EntityDescriptor.empty entity world
                     World.setEntityPropagatedDescriptorOpt (Some propagatedDescriptor) entity world |> snd'
                 | Some _ | None -> world
 
@@ -2581,19 +2618,19 @@ module WorldModuleEntity =
             (entity, world)
 
         /// Read an entity from a file.
-        static member readEntityFromFile filePath nameOpt parent world =
+        static member readEntityFromFile tryReadOrder tryReadPropagationHistory filePath nameOpt parent world =
             let entityDescriptorStr = File.ReadAllText filePath
             let entityDescriptor = scvalue<EntityDescriptor> entityDescriptorStr
-            World.readEntity entityDescriptor nameOpt parent world
+            World.readEntity tryReadOrder tryReadPropagationHistory entityDescriptor nameOpt parent world
 
         /// Read multiple entities.
-        static member readEntities (entityDescriptors : EntityDescriptor list) (parent : Simulant) world =
+        static member readEntities tryReadOrder tryReadPropagationHistory (entityDescriptors : EntityDescriptor list) (parent : Simulant) world =
             let (entitiesRev, world) =
                 List.fold
                     (fun (entities, world) entityDescriptor ->
                         if String.notEmpty entityDescriptor.EntityDispatcherName then
                             let nameOpt = EntityDescriptor.getNameOpt entityDescriptor
-                            let (entity, world) = World.readEntity entityDescriptor nameOpt parent world
+                            let (entity, world) = World.readEntity tryReadOrder tryReadPropagationHistory entityDescriptor nameOpt parent world
                             (entity :: entities, world)
                         else Log.info "Entity with empty dispatcher name encountered."; (entities, world))
                         ([], world)
@@ -2752,6 +2789,7 @@ module WorldModuleEntity =
                  ("EnabledLocal", fun entity world -> { PropertyType = typeof<bool>; PropertyValue = World.getEntityEnabledLocal entity world })
                  ("Visible", fun entity world -> { PropertyType = typeof<bool>; PropertyValue = World.getEntityVisible entity world })
                  ("VisibleLocal", fun entity world -> { PropertyType = typeof<bool>; PropertyValue = World.getEntityVisibleLocal entity world })
+                 ("CastShadow", fun entity world -> { PropertyType = typeof<bool>; PropertyValue = World.getEntityCastShadow entity world })
                  ("Pickable", fun entity world -> { PropertyType = typeof<bool>; PropertyValue = World.getEntityPickable entity world })
                  ("AlwaysUpdate", fun entity world -> { PropertyType = typeof<bool>; PropertyValue = World.getEntityAlwaysUpdate entity world })
                  ("AlwaysRender", fun entity world -> { PropertyType = typeof<bool>; PropertyValue = World.getEntityAlwaysRender entity world })
@@ -2818,6 +2856,7 @@ module WorldModuleEntity =
                  ("EnabledLocal", fun property entity world -> World.setEntityEnabledLocal (property.PropertyValue :?> bool) entity world)
                  ("Visible", fun property entity world -> World.setEntityVisible (property.PropertyValue :?> bool) entity world)
                  ("VisibleLocal", fun property entity world -> World.setEntityVisibleLocal (property.PropertyValue :?> bool) entity world)
+                 ("CastShadow", fun property entity world -> World.setEntityCastShadow (property.PropertyValue :?> bool) entity world)
                  ("Pickable", fun property entity world -> World.setEntityPickable (property.PropertyValue :?> bool) entity world)
                  ("Static", fun property entity world -> World.setEntityStatic (property.PropertyValue :?> bool) entity world)
                  ("AlwaysUpdate", fun property entity world -> World.setEntityAlwaysUpdate (property.PropertyValue :?> bool) entity world)

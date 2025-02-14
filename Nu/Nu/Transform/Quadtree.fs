@@ -1,5 +1,5 @@
 ﻿// Nu Game Engine.
-// Copyright (C) Bryan Edds, 2013-2023.
+// Copyright (C) Bryan Edds.
 
 namespace Nu
 open System
@@ -66,9 +66,7 @@ module internal Quadnode =
               Comparer_ : 'e QuadelementEqualityComparer
               Leaves_ : Dictionary<Vector2, 'e Quadnode> }
 
-        override this.ToString () =
-            ""
-
+        override this.ToString () = ""
         member this.Id = this.Id_
 
     let internal makeChildren<'e when 'e : equality> node =
@@ -301,7 +299,7 @@ module Quadtree =
 
     /// Add an element with the given presence and bounds to the tree.
     let addElement (presence : Presence) bounds element tree =
-        if presence.ImposterType || presence.OmnipresentType then
+        if presence.IsImposter || presence.IsOmnipresent then
             tree.Ubiquitous.Remove element |> ignore
             tree.Ubiquitous.Add element |> ignore
         else
@@ -313,7 +311,7 @@ module Quadtree =
 
     /// Remove an element with the given presence and bounds from the tree.
     let removeElement (presence : Presence) bounds element tree =
-        if presence.ImposterType || presence.OmnipresentType then 
+        if presence.IsImposter || presence.IsOmnipresent then 
             tree.Ubiquitous.Remove element |> ignore
         else
             if not (Quadnode.isIntersectingBounds bounds tree.Node) then
@@ -323,8 +321,8 @@ module Quadtree =
 
     /// Update an existing element in the tree.
     let updateElement (presenceOld : Presence) boundsOld (presenceNew : Presence) boundsNew element tree =
-        let wasInNode = not presenceOld.ImposterType && not presenceOld.OmnipresentType && Quadnode.isIntersectingBounds boundsOld tree.Node
-        let isInNode = not presenceNew.ImposterType && not presenceNew.OmnipresentType && Quadnode.isIntersectingBounds boundsNew tree.Node
+        let wasInNode = not presenceOld.IsImposter && not presenceOld.IsOmnipresent && Quadnode.isIntersectingBounds boundsOld tree.Node
+        let isInNode = not presenceNew.IsImposter && not presenceNew.IsOmnipresent && Quadnode.isIntersectingBounds boundsNew tree.Node
         if wasInNode then
             if isInNode then
                 match tryFindLeafFast boundsOld tree with

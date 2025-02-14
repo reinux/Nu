@@ -1,5 +1,5 @@
 ﻿// Nu Game Engine.
-// Copyright (C) Bryan Edds, 2013-2023.
+// Copyright (C) Bryan Edds.
 
 namespace Nu
 open System
@@ -19,6 +19,10 @@ module WorldImGui =
         static member internal getImGui world =
             world.Subsystems.ImGui
 
+        static member imGuiTryGetTextureId assetTag world =
+            let rendererProcess = World.getRendererProcess world
+            rendererProcess.TryGetImGuiTextureId assetTag
+
         /// Render circles via ImGui in the current eye 2d space, computing color as specified.
         static member imGuiCircles2dPlus absolute (positions : Vector2 seq) radius filled (computeColor : Vector2 -> Color) world =
             let drawList = ImGui.GetBackgroundDrawList ()
@@ -26,7 +30,7 @@ module WorldImGui =
             let eyeCenter = World.getEye2dCenter world
             for position in positions do
                 let color = computeColor position
-                let positionWindow = ImGui.Position2dToWindow (absolute, eyeSize, eyeCenter, position)
+                let positionWindow = ImGui.Position2dToWindow (absolute, eyeSize, eyeCenter, world.RasterViewport, position)
                 if filled
                 then drawList.AddCircleFilled (positionWindow, radius, color.Abgr)
                 else drawList.AddCircle (positionWindow, radius, color.Abgr)
@@ -46,8 +50,8 @@ module WorldImGui =
             let eyeCenter = World.getEye2dCenter world
             for struct (start, stop) in segments do
                 let color = computeColor struct (start, stop)
-                let startWindow = ImGui.Position2dToWindow (absolute, eyeSize, eyeCenter, start)
-                let stopWindow = ImGui.Position2dToWindow (absolute, eyeSize, eyeCenter, stop)
+                let startWindow = ImGui.Position2dToWindow (absolute, eyeSize, eyeCenter, world.RasterViewport, start)
+                let stopWindow = ImGui.Position2dToWindow (absolute, eyeSize, eyeCenter, world.RasterViewport, stop)
                 drawList.AddLine (startWindow, stopWindow, color.Abgr, thickness)
 
         /// Render segments via ImGui in the current eye 2d space.
@@ -65,10 +69,10 @@ module WorldImGui =
             let windowSize = ImGui.GetWindowSize ()
             let eyeCenter = World.getEye3dCenter world
             let eyeRotation = World.getEye3dRotation world
+            let eyeFieldOfView = World.getEye3dFieldOfView world
             let eyeFrustum = World.getEye3dFrustumView world
-            let viewport = Constants.Render.Viewport
-            let view = viewport.View3d (eyeCenter, eyeRotation)
-            let projection = viewport.Projection3d
+            let view = Viewport.getView3d eyeCenter eyeRotation
+            let projection = Viewport.getProjection3d eyeFieldOfView world.RasterViewport
             let viewProjection = view * projection
             for position in positions do
                 if eyeFrustum.Contains position = ContainmentType.Contains then
@@ -93,13 +97,13 @@ module WorldImGui =
             let windowSize = ImGui.GetWindowSize ()
             let eyeCenter = World.getEye3dCenter world
             let eyeRotation = World.getEye3dRotation world
+            let eyeFieldOfView = World.getEye3dFieldOfView world
             let eyeFrustum = World.getEye3dFrustumView world
-            let viewport = Constants.Render.Viewport
-            let view = viewport.View3d (eyeCenter, eyeRotation)
-            let projection = viewport.Projection3d
+            let view = Viewport.getView3d eyeCenter eyeRotation
+            let projection = Viewport.getProjection3d eyeFieldOfView world.RasterViewport
             let viewProjection = view * projection
             for segment in segments do
-                match Math.TryUnionSegmentAndFrustum segment.A segment.B eyeFrustum with
+                match Math.TryUnionSegmentAndFrustum (segment.A, segment.B, eyeFrustum) with
                 | Some (start, stop) ->
                     let color = computeColor segment
                     let startWindow = ImGui.Position3dToWindow (windowPosition, windowSize, viewProjection, start)
@@ -145,7 +149,6 @@ module WorldImGui =
                     itemOpt|]
             let items = Array.definitize itemOpts
             ImGui.Unindent ()
-            ImGui.PopID ()
             (changed, items)
 
         /// Edit a list value via ImGui.
@@ -178,7 +181,6 @@ module WorldImGui =
                     itemOpt]
             let items = List.definitize itemOpts
             ImGui.Unindent ()
-            ImGui.PopID ()
             (changed, items)
 
         /// Edit a record value via ImGui, optionally replacing the instructed fields.
@@ -243,7 +245,6 @@ module WorldImGui =
         /// Edit a value via ImGui.
         /// TODO: split up this function.
         static member imGuiEditProperty (name : string) (ty : Type) (value : obj) (context : EditContext) world =
-            let converter = SymbolicConverter (false, None, ty, context.ToSymbolMemo, context.OfSymbolMemo)
             match value with
             | :? bool as b -> let mutable b = b in (ImGui.Checkbox (name, &b), b :> obj) |> fun result -> (if ImGui.IsItemFocused () then context.FocusProperty ()); result
             | :? int8 as i -> let mutable i = int32 i in (ImGui.DragInt (name, &i), int8 i :> obj) |> fun result -> (if ImGui.IsItemFocused () then context.FocusProperty ()); result
@@ -273,6 +274,7 @@ module WorldImGui =
                 let sizeChanged = ImGui.DragFloat2 (nameof b.Size, &size, context.SnapDrag)
                 if ImGui.IsItemFocused () then context.FocusProperty ()
                 ImGui.Unindent ()
+                ImGui.PopID ()
                 (minChanged || sizeChanged, box2 min size :> obj)
             | :? Box3 as b ->
                 ImGui.Text name
@@ -285,6 +287,7 @@ module WorldImGui =
                 let sizeChanged = ImGui.DragFloat3 (nameof b.Size, &size, context.SnapDrag)
                 if ImGui.IsItemFocused () then context.FocusProperty ()
                 ImGui.Unindent ()
+                ImGui.PopID ()
                 (minChanged || sizeChanged, box3 min size :> obj)
             | :? Box2i as b ->
                 ImGui.Text name
@@ -297,6 +300,7 @@ module WorldImGui =
                 let sizeChanged = ImGui.DragInt2 (nameof b.Size, &size.X, context.SnapDrag)
                 if ImGui.IsItemFocused () then context.FocusProperty ()
                 ImGui.Unindent ()
+                ImGui.PopID ()
                 (minChanged || sizeChanged, box2i min size :> obj)
             | :? Box3i as b ->
                 ImGui.Text name
@@ -309,6 +313,7 @@ module WorldImGui =
                 let sizeChanged = ImGui.DragInt3 (nameof b.Size, &size.X, context.SnapDrag)
                 if ImGui.IsItemFocused () then context.FocusProperty ()
                 ImGui.Unindent ()
+                ImGui.PopID ()
                 (minChanged || sizeChanged, box3i min size :> obj)
             | :? Quaternion as q ->
                 let mutable v = v4 q.X q.Y q.Z q.W
@@ -404,7 +409,7 @@ module WorldImGui =
                                 let mutable animationNameChanged = false
                                 if ImGui.BeginCombo (name, animationName) then
                                     for animationName' in animationNames do
-                                        if ImGui.Selectable (animationName', strEq animationName' animationName) then
+                                        if String.notEmpty animationName' && ImGui.Selectable (animationName', strEq animationName' animationName) then
                                             if strNeq animationName animationName' then
                                                 animationName <- animationName'
                                                 animationNameChanged <- true
@@ -474,6 +479,8 @@ module WorldImGui =
             | :? Lighting3dConfig as lighting3dConfig ->
                 let mutable lighting3dChanged = false
                 let mutable lightCutoffMargin = lighting3dConfig.LightCutoffMargin
+                let mutable lightShadowSamples = lighting3dConfig.LightShadowSamples
+                let mutable lightShadowBias = lighting3dConfig.LightShadowBias
                 let mutable lightShadowSampleScalar = lighting3dConfig.LightShadowSampleScalar
                 let mutable lightShadowExponent = lighting3dConfig.LightShadowExponent
                 let mutable lightShadowDensity = lighting3dConfig.LightShadowDensity
@@ -503,8 +510,10 @@ module WorldImGui =
                 let mutable ssrLightColor = let color = lighting3dConfig.SsrLightColor in color.Vector4
                 let mutable ssrLightBrightness = lighting3dConfig.SsrLightBrightness
                 lighting3dChanged <- ImGui.SliderFloat ("Light Cutoff Margin", &lightCutoffMargin, 0.0f, 1.0f) || lighting3dChanged; if ImGui.IsItemFocused () then context.FocusProperty ()
-                lighting3dChanged <- ImGui.SliderFloat ("Light Shadow SampleScalar", &lightShadowSampleScalar, 0.0f, 0.02f) || lighting3dChanged; if ImGui.IsItemFocused () then context.FocusProperty ()
-                lighting3dChanged <- ImGui.SliderFloat ("Light Shadow Exponent", &lightShadowExponent, 0.0f, 87.0f) || lighting3dChanged; if ImGui.IsItemFocused () then context.FocusProperty ()
+                lighting3dChanged <- ImGui.SliderInt ("Light Shadow Samples", &lightShadowSamples, 0, 5) || lighting3dChanged; if ImGui.IsItemFocused () then context.FocusProperty ()
+                lighting3dChanged <- ImGui.SliderFloat ("Light Shadow Bias", &lightShadowBias, 0.0f, 0.05f) || lighting3dChanged; if ImGui.IsItemFocused () then context.FocusProperty ()
+                lighting3dChanged <- ImGui.SliderFloat ("Light Shadow Sample Scalar", &lightShadowSampleScalar, 0.0f, 0.05f) || lighting3dChanged; if ImGui.IsItemFocused () then context.FocusProperty ()
+                lighting3dChanged <- ImGui.SliderFloat ("Light Shadow Exponent", &lightShadowExponent, 0.0f, 90.0f) || lighting3dChanged; if ImGui.IsItemFocused () then context.FocusProperty ()
                 lighting3dChanged <- ImGui.SliderFloat ("Light Shadow Density", &lightShadowDensity, 0.0f, 32.0f) || lighting3dChanged; if ImGui.IsItemFocused () then context.FocusProperty ()
                 lighting3dChanged <- ImGui.SliderFloat ("Ssao Intensity", &ssaoIntensity, 0.0f, 10.0f) || lighting3dChanged; if ImGui.IsItemFocused () then context.FocusProperty ()
                 lighting3dChanged <- ImGui.SliderFloat ("Ssao Bias", &ssaoBias, 0.0f, 0.1f) || lighting3dChanged; if ImGui.IsItemFocused () then context.FocusProperty ()
@@ -534,6 +543,8 @@ module WorldImGui =
                 if lighting3dChanged then
                     let lighting3dConfig =
                         { LightCutoffMargin = lightCutoffMargin
+                          LightShadowSamples = lightShadowSamples
+                          LightShadowBias = lightShadowBias
                           LightShadowSampleScalar = lightShadowSampleScalar
                           LightShadowExponent = lightShadowExponent
                           LightShadowDensity = lightShadowDensity
@@ -629,6 +640,19 @@ module WorldImGui =
                           PartitionType = scvalue partitionTypeStr }
                     (true, nav3dConfig)
                 else (false, nav3dConfig)
+            | :? (SpineAnimation array) as animations -> // TODO: P1: implement bepoke individual SpineAnimation editing.
+                ImGui.Text name
+                ImGui.SameLine ()
+                ImGui.PushID name
+                let (changed, animations) =
+                    World.imGuiEditPropertyArray
+                        (fun name animation ->
+                            let (changed, animation) = World.imGuiEditProperty name (typeof<SpineAnimation>) animation context world
+                            (changed, animation :?> SpineAnimation))
+                        { SpineAnimationName = ""; SpineAnimationPlayback = Loop }
+                        name animations context
+                ImGui.PopID ()
+                (changed, animations)
             | :? (Animation array) as animations ->
                 ImGui.Text name
                 ImGui.SameLine ()
@@ -643,6 +667,7 @@ module WorldImGui =
                 ImGui.PopID ()
                 (changed, animations)
             | _ ->
+                let value = objToObj ty value
                 let mutable combo = false
                 let (changed, value) =
                     if FSharpType.IsUnion ty then
@@ -840,6 +865,7 @@ module WorldImGui =
                             ImGui.Text name
                             (changed, value)
                     elif ty.IsGenericType && ty.GetGenericTypeDefinition () = typedefof<_ AssetTag> then
+                        let converter = SymbolicConverter (false, None, ty, context.ToSymbolMemo, context.OfSymbolMemo)                        
                         let mutable valueStr = converter.ConvertToString value
                         let (changed, value) =
                             if ImGui.InputText ("##text" + name, &valueStr, 4096u) then
@@ -875,11 +901,12 @@ module WorldImGui =
                         ImGui.Text name
                         (changed, value)
                     else
+                        let converter = SymbolicConverter (false, None, ty, context.ToSymbolMemo, context.OfSymbolMemo)                        
+                        let valueStr = converter.ConvertToString value
+                        let prettyPrinter = (SyntaxAttribute.defaultValue ty).PrettyPrinter
+                        let mutable valueStrPretty = PrettyPrinter.prettyPrint valueStr prettyPrinter
+                        let lines = valueStrPretty |> Seq.filter ((=) '\n') |> Seq.length |> inc
                         let (changed, value) =
-                            let valueStr = converter.ConvertToString value
-                            let prettyPrinter = (SyntaxAttribute.defaultValue ty).PrettyPrinter
-                            let mutable valueStrPretty = PrettyPrinter.prettyPrint valueStr prettyPrinter
-                            let lines = valueStrPretty |> Seq.filter ((=) '\n') |> Seq.length |> inc
                             if lines = 1 then
                                 let mutable valueStr = valueStr
                                 if ImGui.InputText (name, &valueStr, 131072u) then

@@ -1,5 +1,5 @@
 ﻿// Nu Game Engine.
-// Copyright (C) Bryan Edds, 2013-2023.
+// Copyright (C) Bryan Edds.
 
 namespace Nu
 open System
@@ -36,6 +36,9 @@ module WorldGameModule =
         member this.GetEye3dRotation world = World.getGameEye3dRotation this world
         member this.SetEye3dRotation value world = World.setGameEye3dRotation value this world |> snd'
         member this.Eye3dRotation = lens (nameof this.Eye3dRotation) this this.GetEye3dRotation this.SetEye3dRotation
+        member this.GetEye3dFieldOfView world = World.getGameEye3dFieldOfView this world
+        member this.SetEye3dFieldOfView value world = World.setGameEye3dFieldOfView value this world |> snd'
+        member this.Eye3dFieldOfView = lens (nameof this.Eye3dFieldOfView) this this.GetEye3dFieldOfView this.SetEye3dFieldOfView
         member this.GetOrder world = World.getGameOrder this world
         member this.Order = lensReadOnly (nameof this.Order) this this.GetOrder
         member this.GetId world = World.getGameId this world
@@ -111,8 +114,7 @@ module WorldGameModule =
 
         /// Set an xtension property value.
         member this.Set<'a> propertyName (value : 'a) world =
-            let property = { PropertyType = typeof<'a>; PropertyValue = value }
-            World.setGameXtensionProperty propertyName property this world |> snd'
+            World.setGameXtensionValue<'a> propertyName value this world
 
         /// Check that a game dispatches in the same manner as the dispatcher with the given type.
         member this.Is (dispatcherType, world) = Reflection.dispatchesAs dispatcherType (this.GetDispatcher world)
@@ -207,20 +209,20 @@ module WorldGameModule =
             Seq.concat
 
         /// Write a game to a game descriptor.
-        static member writeGame writePropagationHistory gameDescriptor game world =
+        static member writeGame gameDescriptor game world =
             let gameState = World.getGameState game world
             let gameDispatcherName = getTypeName gameState.Dispatcher
             let gameDescriptor = { gameDescriptor with GameDispatcherName = gameDispatcherName }
-            let gameProperties = Reflection.writePropertiesFromTarget tautology3 gameDescriptor.GameProperties gameState
+            let gameProperties = Reflection.writePropertiesFromTarget (fun name _ _ -> name <> "Order") gameDescriptor.GameProperties gameState
             let gameDescriptor = { gameDescriptor with GameProperties = gameProperties }
             let screens = World.getScreens world
-            { gameDescriptor with ScreenDescriptors = World.writeScreens writePropagationHistory screens world }
+            { gameDescriptor with ScreenDescriptors = World.writeScreens screens world }
 
         /// Write a game to a file.
-        static member writeGameToFile writePropagationHistory (filePath : string) game world =
+        static member writeGameToFile (filePath : string) game world =
             let filePathTmp = filePath + ".tmp"
             let prettyPrinter = (SyntaxAttribute.defaultValue typeof<GameDescriptor>).PrettyPrinter
-            let gameDescriptor = World.writeGame writePropagationHistory GameDescriptor.empty game world
+            let gameDescriptor = World.writeGame GameDescriptor.empty game world
             let gameDescriptorStr = scstring gameDescriptor
             let gameDescriptorPretty = PrettyPrinter.prettyPrint gameDescriptorStr prettyPrinter
             File.WriteAllText (filePathTmp, gameDescriptorPretty)
