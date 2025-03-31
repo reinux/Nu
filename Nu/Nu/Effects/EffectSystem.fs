@@ -283,7 +283,7 @@ module EffectSystem =
             if Array.notEmpty keyFrames then
                 let (keyFrameTime, keyFrame, keyFrame2) = selectKeyFrames effectSystem.EffectTime playback keyFrames
                 let progress = evalProgress keyFrameTime keyFrame.TweenLength effectSystem
-                let tweened = tween Vector4.op_Multiply (keyFrame.TweenValue.Vector4) (keyFrame2.TweenValue.Vector4) progress algorithm
+                let tweened = tween Vector4.op_Multiply (keyFrame.TweenValue.V4) (keyFrame2.TweenValue.V4) progress algorithm
                 let applied = applyTween Color.Multiply Color.Divide Color.Pow Color.Modulo slice.Color (Nu.Color tweened) applicator
                 slice.Color <- applied
             slice
@@ -474,6 +474,7 @@ module EffectSystem =
             if slice.Enabled then
                 let rotation = Quaternion.CreateFromYawPitchRoll (slice.Angles.Y, slice.Angles.X, slice.Angles.Z)
                 let direction = rotation.Down
+                let bounds = Box3 (slice.Position - v3Dup slice.LightCutoff, v3Dup slice.LightCutoff * 2.0f)
                 let lightToken =
                     Light3dToken
                         { LightId = 0UL
@@ -487,7 +488,8 @@ module EffectSystem =
                           AttenuationQuadratic = 1.0f / (slice.Brightness * slice.LightCutoff * slice.LightCutoff)
                           LightCutoff = slice.LightCutoff
                           LightType = lightType
-                          DesireShadows = false }
+                          DesireShadows = false
+                          Bounds = bounds }
                 addDataToken lightToken effectSystem
             else effectSystem
 
@@ -521,7 +523,9 @@ module EffectSystem =
                       EmissionOpt = ValueSome slice.Emission.R
                       HeightOpt = ValueSome slice.Height
                       IgnoreLightMapsOpt = ValueSome slice.IgnoreLightMaps
-                      OpaqueDistanceOpt = ValueNone }
+                      OpaqueDistanceOpt = ValueNone
+                      ThicknessOffsetOpt = ValueNone
+                      ScatterTypeOpt = ValueNone }
                 let material =
                     { AlbedoImageOpt = ValueSome (AssetTag.specialize<Image> imageAlbedo)
                       RoughnessImageOpt = ValueSome (AssetTag.specialize<Image> imageRoughness)
@@ -530,6 +534,9 @@ module EffectSystem =
                       EmissionImageOpt = ValueSome (AssetTag.specialize<Image> imageEmission)
                       NormalImageOpt = ValueSome (AssetTag.specialize<Image> imageNormal)
                       HeightImageOpt = ValueSome (AssetTag.specialize<Image> imageHeight)
+                      SubdermalImageOpt = ValueNone
+                      ThicknessImageOpt = ValueNone
+                      ScatterImageOpt = ValueNone
                       TwoSidedOpt = ValueSome twoSided }
                 let billboardToken =
                     BillboardToken
@@ -540,6 +547,7 @@ module EffectSystem =
                           MaterialProperties = properties
                           Material = material
                           ShadowOffset = effectSystem.EffectShadowOffset
+                          DepthTest = LessThanOrEqualTest
                           RenderType = effectSystem.EffectRenderType }
                 addDataToken billboardToken effectSystem
             else effectSystem
@@ -569,7 +577,9 @@ module EffectSystem =
                       EmissionOpt = ValueSome slice.Emission.R
                       HeightOpt = ValueSome slice.Height
                       IgnoreLightMapsOpt = ValueSome slice.IgnoreLightMaps
-                      OpaqueDistanceOpt = ValueNone }
+                      OpaqueDistanceOpt = ValueNone
+                      ThicknessOffsetOpt = ValueNone
+                      ScatterTypeOpt = ValueNone }
                 let staticModelToken =
                     StaticModelToken
                         { ModelMatrix = affineMatrix
@@ -578,6 +588,7 @@ module EffectSystem =
                           InsetOpt = insetOpt
                           MaterialProperties = properties
                           StaticModel = staticModel
+                          DepthTest = LessThanOrEqualTest
                           RenderType = effectSystem.EffectRenderType }
                 addDataToken staticModelToken effectSystem
             else effectSystem

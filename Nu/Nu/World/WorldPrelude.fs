@@ -14,9 +14,20 @@ open DotRecast.Recast
 open DotRecast.Recast.Geom
 open Prime
 
-// The inferred attributes of an entity that are used to construct its bounds.
-// HACK: added Unimportant field to allow attributes to be marked as unimportant.
-// TODO: see if we can refactor this type to make its representation and algo less hacky.
+/// The result of an intersection-detecting operation.
+type [<Struct>] Intersection =
+    | Hit of single
+    | Miss
+
+    /// Convert from nullable intersection value.
+    static member ofNullable (intersection : single Nullable) =
+        if intersection.HasValue
+        then Hit intersection.Value
+        else Miss
+
+/// The inferred attributes of an entity that are used to construct its bounds.
+/// HACK: added Unimportant field to allow attributes to be marked as unimportant.
+/// TODO: see if we can refactor this type to make its representation and algo less hacky.
 type AttributesInferred =
     { Unimportant : bool
       SizeInferred : Vector3
@@ -437,10 +448,11 @@ type Timers =
 [<AutoOpen>]
 module AmbientState =
 
-    let [<Literal>] private ImperativeMask =    0b0001u
-    let [<Literal>] private AccompaniedMask =   0b0010u
-    let [<Literal>] private AdvancingMask =     0b0100u
-    let [<Literal>] private FramePacingMask =   0b1000u
+    let [<Literal>] private ImperativeMask =            0b00001u
+    let [<Literal>] private AccompaniedMask =           0b00010u
+    let [<Literal>] private AdvancingMask =             0b00100u
+    let [<Literal>] private FramePacingMask =           0b01000u
+    let [<Literal>] private AdvancementClearedMask =    0b10000u
 
     /// The ambient state of the world.
     type [<ReferenceEquality>] 'w AmbientState =
@@ -448,29 +460,32 @@ module AmbientState =
             { // cache line 1 (assuming 16 byte header)
               Flags : uint
               Liveness : Liveness
+              UpdateDelta : int64
               UpdateTime : int64
               ClockDelta : single
               ClockTime : single
-              TickDelta : int64
               // cache line 2
+              TickDelta : int64
               KeyValueStore : SUMap<string, obj>
               TickTime : int64
               TickWatch : Stopwatch
               DateDelta : TimeSpan
-              TickDeltaPrevious : int64
               // cache line 3
+              TickDeltaPrevious : int64
               DateTime : DateTimeOffset
               Tasklets : OMap<Simulant, 'w Tasklet UList>
               SdlDepsOpt : SdlDeps option
               Symbolics : Symbolics
               Overlayer : Overlayer
               Timers : Timers
+              // cache line 4
               LightMapRenderRequested : bool }
 
         member this.Imperative = this.Flags &&& ImperativeMask <> 0u
         member this.Accompanied = this.Flags &&& AccompaniedMask <> 0u
         member this.Advancing = this.Flags &&& AdvancingMask <> 0u
         member this.FramePacing = this.Flags &&& FramePacingMask <> 0u
+        member this.AdvancementCleared = this.Flags &&& AdvancementClearedMask <> 0u
 
     /// Get the the liveness state of the engine.
     let getLiveness state =
@@ -488,8 +503,29 @@ module AmbientState =
         { state with Flags = if framePacing then state.Flags ||| FramePacingMask else state.Flags &&& ~~~FramePacingMask }
 
     /// Get the collection config value.
-    let getConfig (state : 'w AmbientState) =
+    let getConfig (state : _ AmbientState) =
         if state.Imperative then TConfig.Imperative else TConfig.Functional
+
+    let internal clearAdvancement (state : _ AmbientState) =
+        { state with
+            Flags = state.Flags &&& ~~~AdvancingMask ||| AdvancementClearedMask
+            UpdateDelta = 0L
+            ClockDelta = 0.0f
+            TickDelta = 0L }
+
+    let internal restoreAdvancement advancing advancementCleared updateDelta clockDelta tickDelta (state : _ AmbientState) =
+        let flags = state.Flags
+        let flags = if advancing then flags ||| AdvancingMask else flags &&& ~~~AdvancingMask
+        let flags = if advancementCleared then flags ||| AdvancementClearedMask else flags &&& ~~~AdvancementClearedMask
+        { state with
+            Flags = flags
+            UpdateDelta = updateDelta
+            ClockDelta = clockDelta
+            TickDelta = tickDelta }
+
+    /// Get the update delta.
+    let getUpdateDelta state =
+        state.UpdateDelta
 
     /// Get the update time.
     let getUpdateTime state =
@@ -515,13 +551,13 @@ module AmbientState =
     let getGameDelta (state : 'w AmbientState) =
         match Constants.GameTime.DesiredFrameRate with
         | StaticFrameRate _ -> UpdateTime (if state.Advancing then 1L else 0L)
-        | DynamicFrameRate _ -> ClockTime (getClockDelta state)
+        | DynamicFrameRate _ -> TickTime (getTickDelta state)
 
     /// Get the polymorphic engine time.
     let getGameTime state =
         match Constants.GameTime.DesiredFrameRate with
         | StaticFrameRate _ -> UpdateTime (getUpdateTime state)
-        | DynamicFrameRate _ -> ClockTime (getClockTime state)
+        | DynamicFrameRate _ -> TickTime (getTickTime state)
 
     /// Get the date delta as a TimeSpan.
     let getDateDelta state =
@@ -546,6 +582,7 @@ module AmbientState =
         let tickTime = state.TickTime + tickDelta
         let dateTime = DateTimeOffset.Now
         { state with
+            UpdateDelta = updateDelta
             UpdateTime = state.UpdateTime + updateDelta
             ClockDelta = single tickDelta / single Stopwatch.Frequency
             ClockTime = single tickTime / single Stopwatch.Frequency
@@ -718,6 +755,7 @@ module AmbientState =
         let config = if imperative then TConfig.Imperative else TConfig.Functional
         { Flags = flags
           Liveness = Live
+          UpdateDelta = 0L
           UpdateTime = 0L
           ClockDelta = 0.0f
           ClockTime = 0.0f

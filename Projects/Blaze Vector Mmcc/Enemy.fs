@@ -23,7 +23,7 @@ module EnemyExtensions =
         member this.GetEnemy world : Enemy = this.GetModelGeneric<Enemy> world
         member this.SetEnemy enemy world = this.SetModelGeneric<Enemy> enemy world
         member this.Enemy = this.ModelGeneric<Enemy> ()
-        member this.DieEvent = Events.DieEvent --> this
+        member this.DeathEvent = Events.DeathEvent --> this
 
 type EnemyDispatcher () =
     inherit Entity2dDispatcher<Enemy, EnemyMessage, EnemyCommand> (true, false, false, { Health = 7 })
@@ -45,7 +45,6 @@ type EnemyDispatcher () =
          Entity.CelSize == v2 48.0f 96.0f
          Entity.AnimationDelay == UpdateTime 8L
          Entity.AnimationSheet == Assets.Gameplay.EnemyImage
-         Entity.Observable == true
          Entity.UpdateEvent => Update
          Entity.BodyPenetrationEvent =|> fun evt -> Penetration evt.Data]
 
@@ -64,12 +63,13 @@ type EnemyDispatcher () =
             let world =
                 let eyeBounds = World.getEye2dBounds world
                 let entityBounds = entity.GetBounds world
-                if entityBounds.Box2.Intersects eyeBounds
-                then World.applyBodyForce Constants.Gameplay.EnemyWalkForce None (entity.GetBodyId world) world
+                if entityBounds.Box2.Intersects eyeBounds then
+                    let bodyId = entity.GetBodyId world
+                    World.applyBodyForce Constants.Gameplay.EnemyWalkForce None bodyId world
                 else world
             let world =
                 if enemy.Health <= 0 then
-                    let world = World.publish entity entity.DieEvent entity world
+                    let world = World.publish entity entity.DeathEvent entity world
                     let world = World.destroyEntity entity world
                     World.playSound Constants.Audio.SoundVolumeDefault Assets.Gameplay.ExplosionSound world
                     world

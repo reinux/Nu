@@ -7,6 +7,7 @@ open System.Collections.Concurrent
 open System.Collections.Generic
 open System.Numerics
 open Prime
+open System.Reflection
 
 /// Determines how an animated behavior is executed.
 type [<Struct>] Playback =
@@ -44,6 +45,16 @@ type [<SymbolicExpansion; DefaultValue "[[StartTime 0] [LifeTimeOpt None] [Name 
     /// Make an bouncing animation value.
     static member bounce startTime lifeTimeOpt name =
         Animation.make startTime lifeTimeOpt name Bounce 1.0f 1.0f None
+
+/// Specifies the type of desired fragment depth testing.
+type [<Struct>] DepthTest =
+    | LessThanTest
+    | LessThanOrEqualTest
+    | EqualTest
+    | GreaterThanOrEqualTest
+    | GreaterThanTest
+    | NeverPassTest
+    | AlwaysPassTest
 
 /// The type of rendering used on a surface (for use by the higher-level engine API).
 type RenderStyle =
@@ -326,6 +337,24 @@ module AssimpExtensions =
                 else ValueNone
             | ValueNone -> ValueNone
 
+        member this.ThicknessOffsetOpt =
+            match this.TryGetMaterialProperty Constants.Assimp.ThicknessOffsetPropertyName with
+            | ValueSome property ->
+                if property.PropertyType = Assimp.PropertyType.String then
+                    try property.GetStringValue () |> scvalueMemo<single> |> ValueSome
+                    with _ -> ValueNone
+                else ValueNone
+            | ValueNone -> ValueNone
+
+        member this.ScatterTypeOpt =
+            match this.TryGetMaterialProperty Constants.Assimp.ScatterTypePropertyName with
+            | ValueSome property ->
+                if property.PropertyType = Assimp.PropertyType.String then
+                    try property.GetStringValue () |> scvalueMemo<ScatterType> |> ValueSome
+                    with _ -> ValueNone
+                else ValueNone
+            | ValueNone -> ValueNone
+
         member this.TwoSidedOpt =
             match this.TryGetMaterialProperty Constants.Assimp.TwoSidedPropertyName with
             | ValueSome property ->
@@ -426,6 +455,26 @@ module AssimpExtensions =
                 | _ -> ValueNone
             else ValueNone
 
+        member this.ThicknessOffsetOpt =
+            let mutable entry = Unchecked.defaultof<_>
+            if this.Metadata.TryGetValue (Constants.Render.ThicknessOffsetName, &entry) then
+                match entry.DataType with
+                | Assimp.MetaDataType.String ->
+                    try entry.Data :?> string |> scvalueMemo<single> |> ValueSome
+                    with _ -> ValueNone
+                | _ -> ValueNone
+            else ValueNone
+
+        member this.ScatterTypeOpt =
+            let mutable entry = Unchecked.defaultof<_>
+            if this.Metadata.TryGetValue (Constants.Render.ScatterTypeName, &entry) then
+                match entry.DataType with
+                | Assimp.MetaDataType.String ->
+                    try entry.Data :?> string |> scvalueMemo<ScatterType> |> ValueSome
+                    with _ -> ValueNone
+                | _ -> ValueNone
+            else ValueNone
+
         member this.NavShapeOpt =
             let mutable entry = Unchecked.defaultof<_>
             if this.Metadata.TryGetValue (Constants.Render.NavShapeName, &entry) then
@@ -446,6 +495,15 @@ module AssimpExtensions =
                 this.Metadata.Add ("IndexData" + string i, Assimp.Metadata.Entry (Assimp.MetaDataType.Int32, indices))
                 mesh.Faces.Clear ()
                 mesh.Faces.Capacity <- 0
+
+        member this.ClearColorData () =
+            for i in 0 .. dec this.Meshes.Count do
+                let mesh = this.Meshes.[i]
+                let m_colorsField = (getType mesh).GetField ("m_colors", BindingFlags.Instance ||| BindingFlags.NonPublic)
+                m_colorsField.SetValue (mesh, Array.empty<Assimp.Color4D List>)
+                for attachment in mesh.MeshAnimationAttachments do
+                    let m_colorsField = (getType attachment).GetField ("m_colors", BindingFlags.Instance ||| BindingFlags.NonPublic)
+                    m_colorsField.SetValue (attachment, Array.empty<Assimp.Color4D List>)
 
         member this.TryFindNode (meshIndex, node : Assimp.Node) =
             let nodes =
@@ -481,9 +539,8 @@ module AssimpExtensions =
                 let animationLifeTimeOpt = Option.map (fun (lifeTime : GameTime) -> lifeTime.Seconds) animation.LifeTimeOpt
                 let mutable animationChannel = Unchecked.defaultof<_>
                 if animationChannels.TryGetValue (AnimationChannelKey.make animation.Name node.Name, &animationChannel) then
-                    let localTime = time - animationStartTime
-                    if  localTime >= 0.0f &&
-                        (match animationLifeTimeOpt with Some lifeTime -> localTime < animationStartTime + lifeTime | None -> true) &&
+                    let localTime = max 0.0f (time - animationStartTime)
+                    if  (match animationLifeTimeOpt with Some lifeTime -> localTime < animationStartTime + lifeTime | None -> true) &&
                         (match animation.BoneFilterOpt with Some boneFilter -> boneFilter.Contains node.Name | None -> true) then
                         let localTimeScaled =
                             match animation.Playback with
@@ -559,7 +616,7 @@ module AssimpExtensions =
 
             // log if there are more bones than we currently support
             if mesh.Bones.Count >= Constants.Render.BonesMax then
-                Log.info ("Assimp mesh bone count exceeded currently supported number of bones in scene '" + this.Name + "'.")
+                Log.warn ("Assimp mesh bone count exceeded currently supported number of bones in scene '" + this.Name + "'.")
 
             // pre-compute bone id dict and bone info storage (these should probably persist outside of this function and be reused)
             let boneIds = dictPlus StringComparer.Ordinal []

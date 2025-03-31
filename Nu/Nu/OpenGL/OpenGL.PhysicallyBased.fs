@@ -20,7 +20,7 @@ module PhysicallyBased =
         { ShadowTextureBuffersArray : (OpenGL.Texture.Texture * uint * uint) array
           ShadowTextureBuffers2Array : (OpenGL.Texture.Texture * uint * uint) array
           ShadowMapBuffersArray : (OpenGL.Texture.Texture * uint * uint) array
-          GeometryBuffers : OpenGL.Texture.Texture * OpenGL.Texture.Texture * OpenGL.Texture.Texture * OpenGL.Texture.Texture * uint * uint
+          GeometryBuffers : OpenGL.Texture.Texture * OpenGL.Texture.Texture * OpenGL.Texture.Texture * OpenGL.Texture.Texture * OpenGL.Texture.Texture * OpenGL.Texture.Texture * uint * uint
           LightMappingBuffers : OpenGL.Texture.Texture * uint * uint
           AmbientBuffers : OpenGL.Texture.Texture * uint * uint
           IrradianceBuffers : OpenGL.Texture.Texture * uint * uint
@@ -43,7 +43,9 @@ module PhysicallyBased =
           Emission : single
           Height : single
           IgnoreLightMaps : bool
-          OpaqueDistance : single }
+          OpaqueDistance : single
+          ThicknessOffset : single
+          ScatterType : ScatterType }
 
         /// The empty material properties.
         static member empty =
@@ -54,7 +56,9 @@ module PhysicallyBased =
               Emission = 0.0f
               Height = 0.0f
               IgnoreLightMaps = false
-              OpaqueDistance = 0.0f }
+              OpaqueDistance = 0.0f
+              ThicknessOffset = 0.0f
+              ScatterType = NoScatter }
 
     /// Describes a physically-based material.
     type PhysicallyBasedMaterial =
@@ -65,6 +69,9 @@ module PhysicallyBased =
           EmissionTexture : Texture.Texture
           NormalTexture : Texture.Texture
           HeightTexture : Texture.Texture
+          SubdermalTexture : Texture.Texture
+          ThicknessTexture : Texture.Texture
+          ScatterTexture : Texture.Texture
           TwoSided : bool }
 
         /// The empty material.
@@ -76,6 +83,9 @@ module PhysicallyBased =
               EmissionTexture = Texture.EmptyTexture
               NormalTexture = Texture.EmptyTexture
               HeightTexture = Texture.EmptyTexture
+              SubdermalTexture = Texture.EmptyTexture
+              ThicknessTexture = Texture.EmptyTexture
+              ScatterTexture = Texture.EmptyTexture
               TwoSided = false }
 
     /// Describes some physically-based geometry that's loaded into VRAM.
@@ -85,10 +95,25 @@ module PhysicallyBased =
           ElementCount : int
           Vertices : Vector3 array
           Indices : int array
+          mutable TrianglesCached : Vector3 array option
           VertexBuffer : uint
           InstanceBuffer : uint
           IndexBuffer : uint
           PhysicallyBasedVao : uint }
+
+        /// Lazily access triangles, building them from Vertices and Indices if needed.
+        member this.Triangles =
+            match this.TrianglesCached with
+            | None ->
+                assert (this.PrimitiveType = PrimitiveType.Triangles) // should hold since we use Assimp.PostProcessSteps.Triangulate
+                let triangles =
+                    [|for points in Array.chunkBySize 3 this.Indices do
+                        this.Vertices.[points.[0]]
+                        this.Vertices.[points.[1]]
+                        this.Vertices.[points.[2]]|]
+                this.TrianglesCached <- Some triangles
+                triangles
+            | Some triangles -> triangles
 
     /// Describes a renderable physically-based surface.
     type [<CustomEquality; NoComparison>] PhysicallyBasedSurface =
@@ -143,6 +168,26 @@ module PhysicallyBased =
                 | Some _ | None -> opaqueDistanceDefault
             | ValueSome opaqueDistance -> opaqueDistance
 
+        static member extractThicknessOffset thicknessOffsetDefault (sceneOpt : Assimp.Scene option) surface =
+            match surface.SurfaceNode.ThicknessOffsetOpt with
+            | ValueNone ->
+                match sceneOpt with
+                | Some scene when surface.SurfaceMaterialIndex < scene.Materials.Count ->
+                    let material = scene.Materials.[surface.SurfaceMaterialIndex]
+                    ValueOption.defaultValue thicknessOffsetDefault material.ThicknessOffsetOpt
+                | Some _ | None -> thicknessOffsetDefault
+            | ValueSome thicknessOffset -> thicknessOffset
+
+        static member extractScatterType scatterTypeDefault (sceneOpt : Assimp.Scene option) surface =
+            match surface.SurfaceNode.ScatterTypeOpt with
+            | ValueNone ->
+                match sceneOpt with
+                | Some scene when surface.SurfaceMaterialIndex < scene.Materials.Count ->
+                    let material = scene.Materials.[surface.SurfaceMaterialIndex]
+                    ValueOption.defaultValue scatterTypeDefault material.ScatterTypeOpt
+                | Some _ | None -> scatterTypeDefault
+            | ValueSome scatterType -> scatterType
+
         static member extractNavShape shapeDefault (sceneOpt : Assimp.Scene option) surface =
             match surface.SurfaceNode.NavShapeOpt with
             | ValueNone ->
@@ -166,6 +211,9 @@ module PhysicallyBased =
             left.SurfaceMaterial.EmissionTexture = right.SurfaceMaterial.EmissionTexture &&
             left.SurfaceMaterial.NormalTexture = right.SurfaceMaterial.NormalTexture &&
             left.SurfaceMaterial.HeightTexture = right.SurfaceMaterial.HeightTexture &&
+            left.SurfaceMaterial.SubdermalTexture = right.SurfaceMaterial.SubdermalTexture &&
+            left.SurfaceMaterial.ThicknessTexture = right.SurfaceMaterial.ThicknessTexture &&
+            left.SurfaceMaterial.ScatterTexture = right.SurfaceMaterial.ScatterTexture &&
             left.SurfaceMaterial.TwoSided = right.SurfaceMaterial.TwoSided &&
             left.PhysicallyBasedGeometry.PrimitiveType = right.PhysicallyBasedGeometry.PrimitiveType &&
             left.PhysicallyBasedGeometry.PhysicallyBasedVao = right.PhysicallyBasedGeometry.PhysicallyBasedVao
@@ -179,9 +227,12 @@ module PhysicallyBased =
                 (hash material.EmissionTexture <<< 8) ^^^
                 (hash material.NormalTexture <<< 10) ^^^
                 (hash material.HeightTexture <<< 12) ^^^
-                (hash material.TwoSided <<< 14) ^^^
-                (int geometry.PrimitiveType <<< 16) ^^^
-                (int geometry.PhysicallyBasedVao <<< 18)
+                (hash material.SubdermalTexture <<< 14) ^^^
+                (hash material.ThicknessTexture <<< 16) ^^^
+                (hash material.ScatterTexture <<< 18) ^^^
+                (hash material.TwoSided <<< 20) ^^^
+                (int geometry.PrimitiveType <<< 22) ^^^
+                (int geometry.PhysicallyBasedVao <<< 24)
             { HashCode = hashCode
               SurfaceNames = names
               SurfaceMatrixIsIdentity = surfaceMatrix.IsIdentity
@@ -209,6 +260,8 @@ module PhysicallyBased =
         let extractRenderStyle = PhysicallyBasedSurface.extractRenderStyle
         let extractIgnoreLightMaps = PhysicallyBasedSurface.extractIgnoreLightMaps
         let extractOpaqueDistance = PhysicallyBasedSurface.extractOpaqueDistance
+        let extractThicknessOffset = PhysicallyBasedSurface.extractThicknessOffset
+        let extractScatterType = PhysicallyBasedSurface.extractScatterType
         let extractNavShape = PhysicallyBasedSurface.extractNavShape
         let hash = PhysicallyBasedSurface.hash
         let equals = PhysicallyBasedSurface.equals
@@ -276,6 +329,9 @@ module PhysicallyBased =
           EmissionTextureUniform : int
           NormalTextureUniform : int
           HeightTextureUniform : int
+          SubdermalTextureUniform : int
+          ThicknessTextureUniform : int
+          ScatterTextureUniform : int
           BrdfTextureUniform : int
           IrradianceMapUniform : int
           EnvironmentFilterMapUniform : int
@@ -299,6 +355,7 @@ module PhysicallyBased =
           LightTypesUniform : int
           LightConeInnersUniform : int
           LightConeOutersUniform : int
+          LightDesireFogsUniform : int
           LightShadowIndicesUniform : int
           LightsCountUniform : int
           ShadowMatricesUniforms : int array
@@ -417,6 +474,8 @@ module PhysicallyBased =
           AlbedoTextureUniform : int
           MaterialTextureUniform : int
           NormalPlusTextureUniform : int
+          SubdermalPlusTextureUniform : int
+          ScatterPlusTextureUniform : int
           BrdfTextureUniform : int
           AmbientTextureUniform : int
           IrradianceTextureUniform : int
@@ -434,6 +493,7 @@ module PhysicallyBased =
           LightTypesUniform : int
           LightConeInnersUniform : int
           LightConeOutersUniform : int
+          LightDesireFogsUniform : int
           LightShadowIndicesUniform : int
           LightsCountUniform : int
           ShadowMatricesUniforms : int array
@@ -663,16 +723,23 @@ module PhysicallyBased =
         let eTextureFilePath =                  if has_bc       then substitutionPrefix + albedoTextureFileName.Replace ("_bc", "_e")                       elif has_d      then substitutionPrefix + albedoTextureFileName.Replace ("_d", "_e")                    else ""
         let nTextureFilePath =                  if has_bc       then substitutionPrefix + albedoTextureFileName.Replace ("_bc", "_n")                       elif has_d      then substitutionPrefix + albedoTextureFileName.Replace ("_d", "_n")                    else ""
         let hTextureFilePath =                  if has_bc       then substitutionPrefix + albedoTextureFileName.Replace ("_bc", "_h")                       elif has_d      then substitutionPrefix + albedoTextureFileName.Replace ("_d", "_h")                    else ""
+        let subdermalTextureFilePath =          if has_bc       then substitutionPrefix + albedoTextureFileName.Replace ("_bc", "_subdermal")               elif has_d      then substitutionPrefix + albedoTextureFileName.Replace ("_d", "_subdermal")            else ""
+        let thicknessTextureFilePath =          if has_bc       then substitutionPrefix + albedoTextureFileName.Replace ("_bc", "_thickness")               elif has_d      then substitutionPrefix + albedoTextureFileName.Replace ("_d", "_thickness")            else ""
+        let scatterTextureFilePath =            if has_bc       then substitutionPrefix + albedoTextureFileName.Replace ("_bc", "_scatter")                 elif has_d      then substitutionPrefix + albedoTextureFileName.Replace ("_d", "_scatter")              else ""
         let rmTextureFilePath =                 if hasBaseColor then substitutionPrefix + albedoTextureFileName.Replace ("BaseColor", "RM")                 elif hasDiffuse then substitutionPrefix + albedoTextureFileName.Replace ("Diffuse", "RM")               elif hasAlbedo  then substitutionPrefix + albedoTextureFileName.Replace ("Albedo", "RM")                else ""
         let rmaTextureFilePath =                if hasBaseColor then substitutionPrefix + albedoTextureFileName.Replace ("BaseColor", "RMA")                elif hasDiffuse then substitutionPrefix + albedoTextureFileName.Replace ("Diffuse", "RMA")              elif hasAlbedo  then substitutionPrefix + albedoTextureFileName.Replace ("Albedo", "RMA")               else ""
         let roughnessTextureFilePath =          if hasBaseColor then substitutionPrefix + albedoTextureFileName.Replace ("BaseColor", "Roughness")          elif hasDiffuse then substitutionPrefix + albedoTextureFileName.Replace ("Diffuse", "Roughness")        elif hasAlbedo  then substitutionPrefix + albedoTextureFileName.Replace ("Albedo", "Roughness")         else ""
         let metallicTextureFilePath =           if hasBaseColor then substitutionPrefix + albedoTextureFileName.Replace ("BaseColor", "Metallic")           elif hasDiffuse then substitutionPrefix + albedoTextureFileName.Replace ("Diffuse", "Metallic")         elif hasAlbedo  then substitutionPrefix + albedoTextureFileName.Replace ("Albedo", "Metallic")          else ""
         let metalnessTextureFilePath =          if hasBaseColor then substitutionPrefix + albedoTextureFileName.Replace ("BaseColor", "Metalness")          elif hasDiffuse then substitutionPrefix + albedoTextureFileName.Replace ("Diffuse", "Metalness")        elif hasAlbedo  then substitutionPrefix + albedoTextureFileName.Replace ("Albedo", "Metalness")         else ""
         let ambientOcclusionTextureFilePath =   if hasBaseColor then substitutionPrefix + albedoTextureFileName.Replace ("BaseColor", "AmbientOcclusion")   elif hasDiffuse then substitutionPrefix + albedoTextureFileName.Replace ("Diffuse", "AmbientOcclusion") elif hasAlbedo  then substitutionPrefix + albedoTextureFileName.Replace ("Albedo", "AmbientOcclusion")  else ""
+        let occlusionTextureFilePath =          if hasBaseColor then substitutionPrefix + albedoTextureFileName.Replace ("BaseColor", "Occlusion")          elif hasDiffuse then substitutionPrefix + albedoTextureFileName.Replace ("Diffuse", "Occlusion")        elif hasAlbedo  then substitutionPrefix + albedoTextureFileName.Replace ("Albedo", "Occlusion")         else ""
         let aoTextureFilePath' =                if hasBaseColor then substitutionPrefix + albedoTextureFileName.Replace ("BaseColor", "AO")                 elif hasDiffuse then substitutionPrefix + albedoTextureFileName.Replace ("Diffuse", "AO")               elif hasAlbedo  then substitutionPrefix + albedoTextureFileName.Replace ("Albedo", "AO")                else ""
         let normalTextureFilePath =             if hasBaseColor then substitutionPrefix + albedoTextureFileName.Replace ("BaseColor", "Normal")             elif hasDiffuse then substitutionPrefix + albedoTextureFileName.Replace ("Diffuse", "Normal")           elif hasAlbedo  then substitutionPrefix + albedoTextureFileName.Replace ("Albedo", "Normal")            else ""
         let emissionTextureFilePath =           if hasBaseColor then substitutionPrefix + albedoTextureFileName.Replace ("BaseColor", "Emission")           elif hasDiffuse then substitutionPrefix + albedoTextureFileName.Replace ("Diffuse", "Emission")         elif hasAlbedo  then substitutionPrefix + albedoTextureFileName.Replace ("Albedo", "Emission")          else ""
         let heightTextureFilePath =             if hasBaseColor then substitutionPrefix + albedoTextureFileName.Replace ("BaseColor", "Height")             elif hasDiffuse then substitutionPrefix + albedoTextureFileName.Replace ("Diffuse", "Height")           elif hasAlbedo  then substitutionPrefix + albedoTextureFileName.Replace ("Albedo", "Height")            else ""
+        let subdermalTextureFilePath' =         if hasBaseColor then substitutionPrefix + albedoTextureFileName.Replace ("BaseColor", "Subdermal")          elif hasDiffuse then substitutionPrefix + albedoTextureFileName.Replace ("Diffuse", "Subdermal")        elif hasAlbedo  then substitutionPrefix + albedoTextureFileName.Replace ("Albedo", "Subdermal")         else ""
+        let thicknessTextureFilePath' =         if hasBaseColor then substitutionPrefix + albedoTextureFileName.Replace ("BaseColor", "Thickness")          elif hasDiffuse then substitutionPrefix + albedoTextureFileName.Replace ("Diffuse", "Thickness")        elif hasAlbedo  then substitutionPrefix + albedoTextureFileName.Replace ("Albedo", "Thickness")         else ""
+        let scatterTextureFilePath' =           if hasBaseColor then substitutionPrefix + albedoTextureFileName.Replace ("BaseColor", "Scatter")            elif hasDiffuse then substitutionPrefix + albedoTextureFileName.Replace ("Diffuse", "Scatter")          elif hasAlbedo  then substitutionPrefix + albedoTextureFileName.Replace ("Albedo", "Scatter")           else ""
 
         // attempt to load roughness info
         let roughness = Constants.Render.RoughnessDefault
@@ -764,12 +831,15 @@ module PhysicallyBased =
                             match textureClient.TryCreateTextureFiltered (true, true, dirPrefix + ambientOcclusionTextureFilePath) with
                             | Right texture -> texture
                             | Left _ ->
-                                match textureClient.TryCreateTextureFiltered (true, true, dirPrefix + aoTextureFilePath') with
+                                match textureClient.TryCreateTextureFiltered (true, true, dirPrefix + occlusionTextureFilePath) with
                                 | Right texture -> texture
                                 | Left _ ->
-                                    match textureClient.TryCreateTextureFiltered (true, true, dirPrefix + rmaTextureFilePath) with
+                                    match textureClient.TryCreateTextureFiltered (true, true, dirPrefix + aoTextureFilePath') with
                                     | Right texture -> texture
-                                    | Left _ -> defaultMaterial.AmbientOcclusionTexture
+                                    | Left _ ->
+                                        match textureClient.TryCreateTextureFiltered (true, true, dirPrefix + rmaTextureFilePath) with
+                                        | Right texture -> texture
+                                        | Left _ -> defaultMaterial.AmbientOcclusionTexture
             else defaultMaterial.AmbientOcclusionTexture
 
         // attempt to load emission info
@@ -840,6 +910,41 @@ module PhysicallyBased =
             | ValueSome opqaqueDistance -> opqaqueDistance
             | ValueNone -> Constants.Render.OpaqueDistanceDefault
 
+        // attempt to load subdermal info
+        let subdermalTexture =
+            if renderable then
+                match textureClient.TryCreateTextureFiltered (true, true, dirPrefix + subdermalTextureFilePath) with
+                | Right texture -> texture
+                | Left _ ->
+                    match textureClient.TryCreateTextureFiltered (true, true, dirPrefix + subdermalTextureFilePath') with
+                    | Right texture -> texture
+                    | Left _ -> defaultMaterial.SubdermalTexture
+            else defaultMaterial.SubdermalTexture
+
+        // attempt to load thickness info
+        let thicknessOffset = Constants.Render.ThicknessOffsetDefault
+        let thicknessTexture =
+            if renderable then
+                match textureClient.TryCreateTextureFiltered (true, true, dirPrefix + thicknessTextureFilePath) with
+                | Right texture -> texture
+                | Left _ ->
+                    match textureClient.TryCreateTextureFiltered (true, true, dirPrefix + thicknessTextureFilePath') with
+                    | Right texture -> texture
+                    | Left _ -> defaultMaterial.ThicknessTexture
+            else defaultMaterial.ThicknessTexture
+
+        // attempt to load scatter info
+        let scatterType = Constants.Render.ScatterTypeDefault
+        let scatterTexture =
+            if renderable then
+                match textureClient.TryCreateTextureFiltered (true, true, dirPrefix + scatterTextureFilePath) with
+                | Right texture -> texture
+                | Left _ ->
+                    match textureClient.TryCreateTextureFiltered (true, true, dirPrefix + scatterTextureFilePath') with
+                    | Right texture -> texture
+                    | Left _ -> defaultMaterial.ScatterTexture
+            else defaultMaterial.ScatterTexture
+
         // compute two-sidedness
         let twoSided =
             match material.TwoSidedOpt with
@@ -855,7 +960,9 @@ module PhysicallyBased =
               Emission = emission
               Height = height
               IgnoreLightMaps = ignoreLightMaps
-              OpaqueDistance = opaqueDistance }
+              OpaqueDistance = opaqueDistance
+              ThicknessOffset = thicknessOffset
+              ScatterType = scatterType }
 
         // make material
         let material =
@@ -866,128 +973,122 @@ module PhysicallyBased =
               EmissionTexture = emissionTexture
               NormalTexture = normalTexture
               HeightTexture = heightTexture
+              SubdermalTexture = subdermalTexture
+              ThicknessTexture = thicknessTexture
+              ScatterTexture = scatterTexture
               TwoSided = twoSided }
 
         // fin
         (properties, material)
 
-    /// Attempt to create physically-based static mesh from an assimp mesh.
-    let TryCreatePhysicallyBasedStaticMesh (indexData, mesh : Assimp.Mesh) =
+    /// Create physically-based static mesh from an assimp mesh.
+    let CreatePhysicallyBasedStaticMesh (indexData, mesh : Assimp.Mesh) =
 
-        // ensure required data is available
-        if  mesh.HasVertices &&
-            mesh.HasNormals &&
-            mesh.HasTextureCoords 0 then
+        // populate vertex data and bounds
+        let vertexData = Array.zeroCreate<single> (mesh.Vertices.Count * 8)
+        let mutable positionMin = v3Zero
+        let mutable positionMax = v3Zero
+        for i in 0 .. dec mesh.Vertices.Count do
+            let v = i * 8
+            let position = if i < mesh.VertexCount then mesh.Vertices.[i] else Assimp.Vector3D (0.0f, 0.0f, 0.0f)
+            let texCoords = if i < mesh.TextureCoordinateChannels.[0].Capacity then mesh.TextureCoordinateChannels.[0].[i] else Assimp.Vector3D (0.0f, 0.0f, 0.0f)
+            let normal = if i < mesh.Normals.Count then mesh.Normals.[i] else Assimp.Vector3D (0.5f, 0.5f, 1.0f)
+            vertexData.[v] <- position.X
+            vertexData.[v+1] <- position.Y
+            vertexData.[v+2] <- position.Z
+            vertexData.[v+3] <- texCoords.X
+            vertexData.[v+4] <- 1.0f - texCoords.Y
+            vertexData.[v+5] <- normal.X
+            vertexData.[v+6] <- normal.Y
+            vertexData.[v+7] <- normal.Z
+            positionMin.X <- min positionMin.X position.X
+            positionMin.Y <- min positionMin.Y position.Y
+            positionMin.Z <- min positionMin.Z position.Z
+            positionMax.X <- max positionMax.X position.X
+            positionMax.Y <- max positionMax.Y position.Y
+            positionMax.Z <- max positionMax.Z position.Z
+        let bounds = box3 positionMin (positionMax - positionMin)
 
-            // attempt to populate geometry data
-            if mesh.Vertices.Count = mesh.Normals.Count && mesh.Vertices.Count = mesh.TextureCoordinateChannels.[0].Count then
+        // fin
+        (vertexData, indexData, bounds)
 
-                // populate vertex data and bounds
-                let vertexData = Array.zeroCreate<single> (mesh.Vertices.Count * 8)
-                let mutable positionMin = v3Zero
-                let mutable positionMax = v3Zero
-                for i in 0 .. dec mesh.Vertices.Count do
-                    let v = i * 8
-                    let position = mesh.Vertices.[i]
-                    let texCoords = mesh.TextureCoordinateChannels.[0].[i]
-                    let normal = mesh.Normals.[i]
-                    vertexData.[v] <- position.X
-                    vertexData.[v+1] <- position.Y
-                    vertexData.[v+2] <- position.Z
-                    vertexData.[v+3] <- texCoords.X
-                    vertexData.[v+4] <- 1.0f - texCoords.Y
-                    vertexData.[v+5] <- normal.X
-                    vertexData.[v+6] <- normal.Y
-                    vertexData.[v+7] <- normal.Z
-                    positionMin.X <- min positionMin.X position.X
-                    positionMin.Y <- min positionMin.Y position.Y
-                    positionMin.Z <- min positionMin.Z position.Z
-                    positionMax.X <- max positionMax.X position.X
-                    positionMax.Y <- max positionMax.Y position.Y
-                    positionMax.Z <- max positionMax.Z position.Z
-                let bounds = box3 positionMin (positionMax - positionMin)
+    /// Create physically-based animated mesh from an assimp mesh.
+    let CreatePhysicallyBasedAnimatedMesh (indexData, mesh : Assimp.Mesh) =
 
-                // fin
-                Right (vertexData, indexData, bounds)
+        // populate vertex data (except bone) and bounds
+        let vertexData = Array.zeroCreate<single> (mesh.Vertices.Count * 16)
+        let mutable positionMin = v3Zero
+        let mutable positionMax = v3Zero
+        for i in 0 .. dec mesh.Vertices.Count do
+            let v = i * 16
+            let position = if i < mesh.VertexCount then mesh.Vertices.[i] else Assimp.Vector3D (0.0f, 0.0f, 0.0f)
+            let texCoords = if i < mesh.TextureCoordinateChannels.[0].Capacity then mesh.TextureCoordinateChannels.[0].[i] else Assimp.Vector3D (0.0f, 0.0f, 0.0f)
+            let normal = if i < mesh.Normals.Count then mesh.Normals.[i] else Assimp.Vector3D (0.5f, 0.5f, 1.0f)
+            vertexData.[v] <- position.X
+            vertexData.[v+1] <- position.Y
+            vertexData.[v+2] <- position.Z
+            vertexData.[v+3] <- texCoords.X
+            vertexData.[v+4] <- 1.0f - texCoords.Y
+            vertexData.[v+5] <- normal.X
+            vertexData.[v+6] <- normal.Y
+            vertexData.[v+7] <- normal.Z
+            vertexData.[v+8] <- -1.0f
+            vertexData.[v+9] <- -1.0f
+            vertexData.[v+10] <- -1.0f
+            vertexData.[v+11] <- -1.0f
+            vertexData.[v+12] <- 0.0f
+            vertexData.[v+13] <- 0.0f
+            vertexData.[v+14] <- 0.0f
+            vertexData.[v+15] <- 0.0f
+            positionMin.X <- min positionMin.X position.X
+            positionMin.Y <- min positionMin.Y position.Y
+            positionMin.Z <- min positionMin.Z position.Z
+            positionMax.X <- max positionMax.X position.X
+            positionMax.Y <- max positionMax.Y position.Y
+            positionMax.Z <- max positionMax.Z position.Z
+        let bounds = box3 positionMin (positionMax - positionMin)
 
-            // error
-            else Left "Vertex / normal / tex coords count mismatch."
+        // populate vertex bone data
+        for boneIndex in 0 .. dec mesh.Bones.Count do
+            let weights = mesh.Bones.[boneIndex].VertexWeights
+            let weightsCount = mesh.Bones.[boneIndex].VertexWeights.Count
+            for weightIndex in 0 .. dec weightsCount do
+                let vertexId = weights.[weightIndex].VertexID
+                let vertexOffset = vertexId * 16
+                let weight = weights.[weightIndex].Weight
+                if weight > 0.0f then
 
-        // error
-        else Left "Mesh is missing vertices, normals, or texCoords."
+                    // find a free slot to specify the current index and weight (free slots are designated as -1.0f index above)
+                    let mutable found = false
+                    let mutable i = 0
+                    while not found && i < Constants.Render.BonesInfluenceMax do
+                        if vertexData.[vertexOffset+8+i] = single boneIndex then // already found
+                            found <- true
+                        elif vertexData.[vertexOffset+8+i] < 0.0f then // found free slot
+                            vertexData.[vertexOffset+8+i] <- single boneIndex
+                            vertexData.[vertexOffset+12+i] <- weight
+                            found <- true
+                        else i <- inc i
 
-    /// Attempt to create physically-based animated mesh from an assimp mesh.
-    let TryCreatePhysicallyBasedAnimatedMesh (indexData, mesh : Assimp.Mesh) =
+                    // when all slots are allocated, replace the index and weight of the lowest-weight entry iff the current weight is higher
+                    if not found then
+                        let mutable lowestOpt = ValueNone
+                        for i in 0 .. dec Constants.Render.BonesInfluenceMax do
+                            match lowestOpt with
+                            | ValueSome lowest ->
+                                if vertexData.[vertexOffset+12+i] < vertexData.[vertexOffset+12+lowest] then
+                                    lowestOpt <- ValueSome i
+                            | ValueNone -> lowestOpt <- ValueSome i
+                        match lowestOpt with
+                        | ValueSome lowest ->
+                            if vertexData.[vertexOffset+12+lowest] < weight then
+                                vertexData.[vertexOffset+8+lowest] <- single boneIndex
+                                vertexData.[vertexOffset+12+lowest] <- weight
+                        | ValueNone -> failwithumf ()
+                                
 
-        // ensure required data is available
-        if  mesh.HasVertices &&
-            mesh.HasNormals &&
-            mesh.HasTextureCoords 0 then
-
-            // attempt to populate geometry data
-            if mesh.Vertices.Count = mesh.Normals.Count && mesh.Vertices.Count = mesh.TextureCoordinateChannels.[0].Count then
-
-                // populate vertex data (except bone) and bounds
-                let vertexData = Array.zeroCreate<single> (mesh.Vertices.Count * 16)
-                let mutable positionMin = v3Zero
-                let mutable positionMax = v3Zero
-                for i in 0 .. dec mesh.Vertices.Count do
-                    let v = i * 16
-                    let position = mesh.Vertices.[i]
-                    let texCoords = mesh.TextureCoordinateChannels.[0].[i]
-                    let normal = mesh.Normals.[i]
-                    vertexData.[v] <- position.X
-                    vertexData.[v+1] <- position.Y
-                    vertexData.[v+2] <- position.Z
-                    vertexData.[v+3] <- texCoords.X
-                    vertexData.[v+4] <- 1.0f - texCoords.Y
-                    vertexData.[v+5] <- normal.X
-                    vertexData.[v+6] <- normal.Y
-                    vertexData.[v+7] <- normal.Z
-                    vertexData.[v+8] <- -1.0f
-                    vertexData.[v+9] <- -1.0f
-                    vertexData.[v+10] <- -1.0f
-                    vertexData.[v+11] <- -1.0f
-                    vertexData.[v+12] <- 0.0f
-                    vertexData.[v+13] <- 0.0f
-                    vertexData.[v+14] <- 0.0f
-                    vertexData.[v+15] <- 0.0f
-                    positionMin.X <- min positionMin.X position.X
-                    positionMin.Y <- min positionMin.Y position.Y
-                    positionMin.Z <- min positionMin.Z position.Z
-                    positionMax.X <- max positionMax.X position.X
-                    positionMax.Y <- max positionMax.Y position.Y
-                    positionMax.Z <- max positionMax.Z position.Z
-                let bounds = box3 positionMin (positionMax - positionMin)
-
-                // populate vertex bone data
-                for boneIndex in 0 .. dec mesh.Bones.Count do
-                    let weights = mesh.Bones.[boneIndex].VertexWeights
-                    let weightsCount = mesh.Bones.[boneIndex].VertexWeights.Count
-                    for weightIndex in 0 .. dec weightsCount do
-                        let vertexId = weights.[weightIndex].VertexID
-                        let weight = weights.[weightIndex].Weight
-                        if weight > 0.0f then
-                            let mutable found = false
-                            let mutable i = 0
-                            while not found && i < Constants.Render.BonesInfluenceMax do
-                                let v = vertexId * 16
-                                if vertexData.[v+8+i] = single boneIndex then // already found
-                                    found <- true
-                                elif vertexData.[v+8+i] < 0.0f then // found free slot
-                                    vertexData.[v+8+i] <- single boneIndex
-                                    vertexData.[v+12+i] <- weight
-                                    found <- true
-                                else i <- inc i
-
-                // fin
-                Right (vertexData, indexData, bounds)
-                    
-            // error
-            else Left ("Vertex / normal / tex coords count mismatch.")
-
-        // error
-        else Left "Mesh is missing vertices, normals, or texCoords."
+        // fin
+        (vertexData, indexData, bounds)
 
     /// Create a mesh for a physically-based quad.
     let CreatePhysicallyBasedQuadMesh () =
@@ -1191,6 +1292,9 @@ module PhysicallyBased =
                 Gl.EnableVertexAttribArray 10u
                 Gl.VertexAttribPointer (10u, 4, VertexAttribPointerType.Float, false, strideSize, nativeint (28 * sizeof<single>))
                 Gl.VertexAttribDivisor (10u, 1u)
+                Gl.EnableVertexAttribArray 11u
+                Gl.VertexAttribPointer (11u, 4, VertexAttribPointerType.Float, false, strideSize, nativeint (32 * sizeof<single>))
+                Gl.VertexAttribDivisor (11u, 1u)
                 Hl.Assert ()
 
                 // create index buffer
@@ -1233,6 +1337,7 @@ module PhysicallyBased =
               ElementCount = indexData.Length
               Vertices = vertices
               Indices = indices
+              TrianglesCached = None
               VertexBuffer = vertexBuffer
               InstanceBuffer = instanceBuffer
               IndexBuffer = indexBuffer
@@ -1241,11 +1346,10 @@ module PhysicallyBased =
         // fin
         geometry
 
-    /// Attempt to create physically-based static geometry from an assimp mesh.
-    let TryCreatePhysicallyBasedStaticGeometry (renderable, indexData, mesh : Assimp.Mesh) =
-        match TryCreatePhysicallyBasedStaticMesh (indexData, mesh) with
-        | Right (vertexData, indexData, bounds) -> Right (CreatePhysicallyBasedStaticGeometry (renderable, PrimitiveType.Triangles, vertexData.AsMemory (), indexData.AsMemory (), bounds))
-        | Left error -> Left error
+    /// Create physically-based static geometry from an assimp mesh.
+    let CreatePhysicallyBasedStaticGeometryFromMesh (renderable, indexData, mesh : Assimp.Mesh) =
+        match CreatePhysicallyBasedStaticMesh (indexData, mesh) with
+        | (vertexData, indexData, bounds) -> CreatePhysicallyBasedStaticGeometry (renderable, PrimitiveType.Triangles, vertexData.AsMemory (), indexData.AsMemory (), bounds)
 
     /// Create physically-based animated geometry from a mesh.
     let CreatePhysicallyBasedAnimatedGeometry (renderable, primitiveType, vertexData : single Memory, indexData : int Memory, bounds) =
@@ -1317,6 +1421,9 @@ module PhysicallyBased =
                 Gl.EnableVertexAttribArray 12u
                 Gl.VertexAttribPointer (12u, 4, VertexAttribPointerType.Float, false, strideSize, nativeint (28 * sizeof<single>))
                 Gl.VertexAttribDivisor (12u, 1u)
+                Gl.EnableVertexAttribArray 13u
+                Gl.VertexAttribPointer (13u, 4, VertexAttribPointerType.Float, false, strideSize, nativeint (32 * sizeof<single>))
+                Gl.VertexAttribDivisor (13u, 1u)
                 Hl.Assert ()
 
                 // create index buffer
@@ -1359,6 +1466,7 @@ module PhysicallyBased =
               ElementCount = indexData.Length
               Vertices = vertices
               Indices = indices
+              TrianglesCached = None
               VertexBuffer = vertexBuffer
               InstanceBuffer = instanceBuffer
               IndexBuffer = indexBuffer
@@ -1367,11 +1475,10 @@ module PhysicallyBased =
         // fin
         geometry
 
-    /// Attempt to create physically-based animated geometry from an assimp mesh.
-    let TryCreatePhysicallyBasedAnimatedGeometry (renderable, indexData, mesh : Assimp.Mesh) =
-        match TryCreatePhysicallyBasedAnimatedMesh (indexData, mesh) with
-        | Right (vertexData, indexData, bounds) -> Right (CreatePhysicallyBasedAnimatedGeometry (renderable, PrimitiveType.Triangles, vertexData.AsMemory (), indexData.AsMemory (), bounds))
-        | Left error -> Left error
+    /// Create physically-based animated geometry from an assimp mesh.
+    let CreatePhysicallyBasedAnimatedGeometryFromMesh (renderable, indexData, mesh : Assimp.Mesh) =
+        match CreatePhysicallyBasedAnimatedMesh (indexData, mesh) with
+        | (vertexData, indexData, bounds) -> CreatePhysicallyBasedAnimatedGeometry (renderable, PrimitiveType.Triangles, vertexData.AsMemory (), indexData.AsMemory (), bounds)
 
     /// Create physically-based terrain geometry from a mesh.
     let CreatePhysicallyBasedTerrainGeometry (renderable, primitiveType, vertexData : single Memory, indexData : int Memory, bounds) =
@@ -1446,6 +1553,9 @@ module PhysicallyBased =
                 Gl.EnableVertexAttribArray 13u
                 Gl.VertexAttribPointer (13u, 4, VertexAttribPointerType.Float, false, strideSize, nativeint (28 * sizeof<single>))
                 Gl.VertexAttribDivisor (13u, 1u)
+                Gl.EnableVertexAttribArray 14u
+                Gl.VertexAttribPointer (14u, 4, VertexAttribPointerType.Float, false, strideSize, nativeint (32 * sizeof<single>))
+                Gl.VertexAttribDivisor (14u, 1u)
                 Hl.Assert ()
 
                 // create index buffer
@@ -1488,6 +1598,7 @@ module PhysicallyBased =
               ElementCount = indexData.Length
               Vertices = vertices
               Indices = indices
+              TrianglesCached = None
               VertexBuffer = vertexBuffer
               InstanceBuffer = instanceBuffer
               IndexBuffer = indexBuffer
@@ -1528,58 +1639,47 @@ module PhysicallyBased =
         | Some error -> Left error
         | None -> Right propertiesAndMaterials
 
-    /// Attempt to create physically-based static geometries from an assimp scene.
+    /// Create physically-based static geometries from an assimp scene.
     /// OPTIMIZATION: duplicate geometry is detected and de-duplicated here, which does have some run-time cost.
-    let TryCreatePhysicallyBasedStaticGeometries (renderable, filePath, scene : Assimp.Scene) =
+    let CreatePhysicallyBasedStaticGeometries (renderable, scene : Assimp.Scene) =
         let meshAndGeometryLists = Dictionary<int * int * Assimp.BoundingBox, (Assimp.Mesh * PhysicallyBasedGeometry) List> HashIdentity.Structural
-        let mutable errorOpt = None
         let geometries = SList.make ()
         for i in 0 .. dec scene.Meshes.Count do
             let indexDataEntry = scene.Metadata.["IndexData" + string i]
             let indexData = indexDataEntry.Data :?> int array
             let mesh = scene.Meshes.[i]
-            if Option.isNone errorOpt then
-                let mutable found = false
-                let meshAndGeometryListOpt = Dictionary.tryFind (mesh.VertexCount, mesh.FaceCount, mesh.BoundingBox) meshAndGeometryLists
+            let mutable found = false
+            let meshAndGeometryListOpt = Dictionary.tryFind (mesh.VertexCount, mesh.FaceCount, mesh.BoundingBox) meshAndGeometryLists
+            match meshAndGeometryListOpt with
+            | Some (meshAndGeometry : (Assimp.Mesh * PhysicallyBasedGeometry) List) ->
+                let mutable enr = meshAndGeometry.GetEnumerator ()
+                while not found && enr.MoveNext () do
+                    let (meshCached, geometryCached) = enr.Current
+                    if  Enumerable.SequenceEqual (meshCached.Vertices, mesh.Vertices) && 
+                        Enumerable.SequenceEqual (meshCached.TextureCoordinateChannels.[0], mesh.TextureCoordinateChannels.[0]) && 
+                        Enumerable.SequenceEqual (meshCached.Normals, mesh.Normals) then
+                        geometries.Add geometryCached
+                        found <- true
+            | None -> ()
+            if not found then
+                let geometry = CreatePhysicallyBasedStaticGeometryFromMesh (renderable, indexData, mesh)
                 match meshAndGeometryListOpt with
-                | Some (meshAndGeometry : (Assimp.Mesh * PhysicallyBasedGeometry) List) ->
-                    let mutable enr = meshAndGeometry.GetEnumerator ()
-                    while not found && enr.MoveNext () do
-                        let (meshCached, geometryCached) = enr.Current
-                        if  Enumerable.SequenceEqual (meshCached.Vertices, mesh.Vertices) && 
-                            Enumerable.SequenceEqual (meshCached.TextureCoordinateChannels.[0], mesh.TextureCoordinateChannels.[0]) && 
-                            Enumerable.SequenceEqual (meshCached.Normals, mesh.Normals) then
-                            geometries.Add geometryCached
-                            found <- true
-                | None -> ()
-                if not found then
-                    match TryCreatePhysicallyBasedStaticGeometry (renderable, indexData, mesh) with
-                    | Right geometry ->
-                        match meshAndGeometryListOpt with
-                        | Some meshesAndGeometries -> meshesAndGeometries.Add (mesh, geometry)
-                        | None -> meshAndGeometryLists.[(mesh.VertexCount, mesh.FaceCount, mesh.BoundingBox)] <- List [(mesh, geometry)]
-                        geometries.Add geometry
-                    | Left error -> errorOpt <- Some ("Could not load static geometries for mesh in file name '" + filePath + "' due to: " + error)
-        match errorOpt with
-        | Some error -> Left error
-        | None -> Right geometries
+                | Some meshesAndGeometries -> meshesAndGeometries.Add (mesh, geometry)
+                | None -> meshAndGeometryLists.[(mesh.VertexCount, mesh.FaceCount, mesh.BoundingBox)] <- List [(mesh, geometry)]
+                geometries.Add geometry
+        geometries
 
-    /// Attempt to create physically-based animated geometries from an assimp scene.
-    /// TODO: consider deduplicating geometry like in TryCreatePhysicallyBasedStaticGeometries?
-    let TryCreatePhysicallyBasedAnimatedGeometries (renderable, filePath, scene : Assimp.Scene) =
-        let mutable errorOpt = None
+    /// Create physically-based animated geometries from an assimp scene.
+    /// TODO: consider deduplicating geometry like in CreatePhysicallyBasedStaticGeometries?
+    let CreatePhysicallyBasedAnimatedGeometries (renderable, scene : Assimp.Scene) =
         let geometries = SList.make ()
         for i in 0 .. dec scene.Meshes.Count do
             let indexDataEntry = scene.Metadata.["IndexData" + string i]
             let indexData = indexDataEntry.Data :?> int array
             let mesh = scene.Meshes.[i]
-            if Option.isNone errorOpt then
-                match TryCreatePhysicallyBasedAnimatedGeometry (renderable, indexData, mesh) with
-                | Right geometry -> geometries.Add geometry
-                | Left error -> errorOpt <- Some ("Could not load animated geometries for mesh in file name '" + filePath + "' due to: " + error)
-        match errorOpt with
-        | Some error -> Left error
-        | None -> Right geometries
+            let geometry = CreatePhysicallyBasedAnimatedGeometryFromMesh (renderable, indexData, mesh)
+            geometries.Add geometry
+        geometries
 
     /// Create a physically-based shader.
     let CreatePhysicallyBasedShader (shaderFilePath : string) =
@@ -1614,6 +1714,9 @@ module PhysicallyBased =
         let emissionTextureUniform = Gl.GetUniformLocation (shader, "emissionTexture")
         let normalTextureUniform = Gl.GetUniformLocation (shader, "normalTexture")
         let heightTextureUniform = Gl.GetUniformLocation (shader, "heightTexture")
+        let subdermalTextureUniform = Gl.GetUniformLocation (shader, "subdermalTexture")
+        let thicknessTextureUniform = Gl.GetUniformLocation (shader, "thicknessTexture")
+        let scatterTextureUniform = Gl.GetUniformLocation (shader, "scatterTexture")
         let brdfTextureUniform = Gl.GetUniformLocation (shader, "brdfTexture")
         let irradianceMapUniform = Gl.GetUniformLocation (shader, "irradianceMap")
         let environmentFilterMapUniform = Gl.GetUniformLocation (shader, "environmentFilterMap")
@@ -1645,6 +1748,7 @@ module PhysicallyBased =
         let lightTypesUniform = Gl.GetUniformLocation (shader, "lightTypes")
         let lightConeInnersUniform = Gl.GetUniformLocation (shader, "lightConeInners")
         let lightConeOutersUniform = Gl.GetUniformLocation (shader, "lightConeOuters")
+        let lightDesireFogsUniform = Gl.GetUniformLocation (shader, "lightDesireFogs")
         let lightShadowIndicesUniform = Gl.GetUniformLocation (shader, "lightShadowIndices")
         let lightsCountUniform = Gl.GetUniformLocation (shader, "lightsCount")
         let shadowMatricesUniforms =
@@ -1675,6 +1779,9 @@ module PhysicallyBased =
           EmissionTextureUniform = emissionTextureUniform
           NormalTextureUniform = normalTextureUniform
           HeightTextureUniform = heightTextureUniform
+          SubdermalTextureUniform = subdermalTextureUniform
+          ThicknessTextureUniform = thicknessTextureUniform
+          ScatterTextureUniform = scatterTextureUniform
           BrdfTextureUniform = brdfTextureUniform
           IrradianceMapUniform = irradianceMapUniform
           EnvironmentFilterMapUniform = environmentFilterMapUniform
@@ -1698,6 +1805,7 @@ module PhysicallyBased =
           LightTypesUniform = lightTypesUniform
           LightConeInnersUniform = lightConeInnersUniform
           LightConeOutersUniform = lightConeOutersUniform
+          LightDesireFogsUniform = lightDesireFogsUniform
           LightShadowIndicesUniform = lightShadowIndicesUniform
           LightsCountUniform = lightsCountUniform
           ShadowMatricesUniforms = shadowMatricesUniforms
@@ -1935,6 +2043,8 @@ module PhysicallyBased =
         let albedoTextureUniform = Gl.GetUniformLocation (shader, "albedoTexture")
         let materialTextureUniform = Gl.GetUniformLocation (shader, "materialTexture")
         let normalPlusTextureUniform = Gl.GetUniformLocation (shader, "normalPlusTexture")
+        let subdermalPlusTextureUniform = Gl.GetUniformLocation (shader, "subdermalPlusTexture")
+        let scatterPlusTextureUniform = Gl.GetUniformLocation (shader, "scatterPlusTexture")
         let brdfTextureUniform = Gl.GetUniformLocation (shader, "brdfTexture")
         let ambientTextureUniform = Gl.GetUniformLocation (shader, "ambientTexture")
         let irradianceTextureUniform = Gl.GetUniformLocation (shader, "irradianceTexture")
@@ -1956,6 +2066,7 @@ module PhysicallyBased =
         let lightTypesUniform = Gl.GetUniformLocation (shader, "lightTypes")
         let lightConeInnersUniform = Gl.GetUniformLocation (shader, "lightConeInners")
         let lightConeOutersUniform = Gl.GetUniformLocation (shader, "lightConeOuters")
+        let lightDesireFogsUniform = Gl.GetUniformLocation (shader, "lightDesireFogs")
         let lightShadowIndicesUniform = Gl.GetUniformLocation (shader, "lightShadowIndices")
         let lightsCountUniform = Gl.GetUniformLocation (shader, "lightsCount")
         let shadowMatricesUniforms =
@@ -1999,6 +2110,8 @@ module PhysicallyBased =
           AlbedoTextureUniform = albedoTextureUniform
           MaterialTextureUniform = materialTextureUniform
           NormalPlusTextureUniform = normalPlusTextureUniform
+          SubdermalPlusTextureUniform = subdermalPlusTextureUniform
+          ScatterPlusTextureUniform = scatterPlusTextureUniform
           BrdfTextureUniform = brdfTextureUniform
           AmbientTextureUniform = ambientTextureUniform
           IrradianceTextureUniform = irradianceTextureUniform
@@ -2016,6 +2129,7 @@ module PhysicallyBased =
           LightTypesUniform = lightTypesUniform
           LightConeInnersUniform = lightConeInnersUniform
           LightConeOutersUniform = lightConeOutersUniform
+          LightDesireFogsUniform = lightDesireFogsUniform
           LightShadowIndicesUniform = lightShadowIndicesUniform
           LightsCountUniform = lightsCountUniform
           ShadowMatricesUniforms = shadowMatricesUniforms
@@ -2420,6 +2534,9 @@ module PhysicallyBased =
             Gl.Uniform1 (shader.EmissionTextureUniform, 4)
             Gl.Uniform1 (shader.NormalTextureUniform, 5)
             Gl.Uniform1 (shader.HeightTextureUniform, 6)
+            Gl.Uniform1 (shader.SubdermalTextureUniform, 7)
+            Gl.Uniform1 (shader.ThicknessTextureUniform, 8)
+            Gl.Uniform1 (shader.ScatterTextureUniform, 9)
             Hl.Assert ()
 
         // only set up uniforms when there is a surface to render to avoid potentially utilizing destroyed textures
@@ -2440,6 +2557,12 @@ module PhysicallyBased =
             Gl.BindTexture (TextureTarget.Texture2d, material.NormalTexture.TextureId)
             Gl.ActiveTexture TextureUnit.Texture6
             Gl.BindTexture (TextureTarget.Texture2d, material.HeightTexture.TextureId)
+            Gl.ActiveTexture TextureUnit.Texture7
+            Gl.BindTexture (TextureTarget.Texture2d, material.SubdermalTexture.TextureId)
+            Gl.ActiveTexture TextureUnit.Texture8
+            Gl.BindTexture (TextureTarget.Texture2d, material.ThicknessTexture.TextureId)
+            Gl.ActiveTexture TextureUnit.Texture9
+            Gl.BindTexture (TextureTarget.Texture2d, material.ScatterTexture.TextureId)
             Hl.Assert ()
 
             // update instance buffer
@@ -2476,6 +2599,12 @@ module PhysicallyBased =
             Gl.BindTexture (TextureTarget.Texture2d, 0u)
             Gl.ActiveTexture TextureUnit.Texture6
             Gl.BindTexture (TextureTarget.Texture2d, 0u)
+            Gl.ActiveTexture TextureUnit.Texture7
+            Gl.BindTexture (TextureTarget.Texture2d, 0u)
+            Gl.ActiveTexture TextureUnit.Texture8
+            Gl.BindTexture (TextureTarget.Texture2d, 0u)
+            Gl.ActiveTexture TextureUnit.Texture9
+            Gl.BindTexture (TextureTarget.Texture2d, 0u)
 
         // stop batch
         if batchPhase.Stopping then
@@ -2498,8 +2627,7 @@ module PhysicallyBased =
 
     /// Draw a batch of physically-based forward surfaces.
     let DrawPhysicallyBasedForwardSurfaces
-        (blending : bool,
-         view : single array,
+        (view : single array,
          projection : single array,
          bones : single array array,
          surfacesCount : int,
@@ -2540,19 +2668,40 @@ module PhysicallyBased =
          lightTypes : int array,
          lightConeInners : single array,
          lightConeOuters : single array,
+         lightDesireFogs : int array,
          lightShadowIndices : int array,
          lightsCount : int,
          shadowMatrices : single array array,
          material : PhysicallyBasedMaterial,
          geometry : PhysicallyBasedGeometry,
+         depthTest : DepthTest,
+         blending : bool,
          shader : PhysicallyBasedShader) =
 
         // only set up uniforms when there is a surface to render to avoid potentially utilizing destroyed textures
         if surfacesCount > 0 then
 
             // setup state
-            Gl.DepthFunc DepthFunction.Lequal
-            Gl.Enable EnableCap.DepthTest
+            match depthTest with
+            | LessThanTest ->
+                Gl.DepthFunc DepthFunction.Less
+                Gl.Enable EnableCap.DepthTest
+            | LessThanOrEqualTest ->
+                Gl.DepthFunc DepthFunction.Lequal
+                Gl.Enable EnableCap.DepthTest
+            | EqualTest ->
+                Gl.DepthFunc DepthFunction.Equal
+                Gl.Enable EnableCap.DepthTest
+            | GreaterThanOrEqualTest ->
+                Gl.DepthFunc DepthFunction.Gequal
+                Gl.Enable EnableCap.DepthTest
+            | GreaterThanTest ->
+                Gl.DepthFunc DepthFunction.Greater
+                Gl.Enable EnableCap.DepthTest
+            | NeverPassTest ->
+                Gl.DepthFunc DepthFunction.Never
+                Gl.Enable EnableCap.DepthTest
+            | AlwaysPassTest -> ()
             if blending then
                 Gl.BlendEquation BlendEquationMode.FuncAdd
                 Gl.BlendFunc (BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha)
@@ -2614,6 +2763,7 @@ module PhysicallyBased =
             Gl.Uniform1 (shader.LightTypesUniform, lightTypes)
             Gl.Uniform1 (shader.LightConeInnersUniform, lightConeInners)
             Gl.Uniform1 (shader.LightConeOutersUniform, lightConeOuters)
+            Gl.Uniform1 (shader.LightDesireFogsUniform, lightDesireFogs)
             Gl.Uniform1 (shader.LightShadowIndicesUniform, lightShadowIndices)
             Gl.Uniform1 (shader.LightsCountUniform, lightsCount)
             for i in 0 .. dec (min Constants.Render.ShadowTexturesMax shadowMatrices.Length) do
@@ -2718,8 +2868,9 @@ module PhysicallyBased =
             Hl.Assert ()
 
             // teardown state
-            Gl.DepthFunc DepthFunction.Less
-            Gl.Disable EnableCap.DepthTest
+            if not depthTest.IsAlwaysPassTest then
+                Gl.DepthFunc DepthFunction.Less
+                Gl.Disable EnableCap.DepthTest
             if blending then
                 Gl.Disable EnableCap.Blend
                 Gl.BlendFunc (BlendingFactor.One, BlendingFactor.Zero)
@@ -3179,6 +3330,8 @@ module PhysicallyBased =
          albedoTexture : Texture.Texture,
          materialTexture : Texture.Texture,
          normalPlusTexture : Texture.Texture,
+         subdermalPlusTexture : Texture.Texture,
+         scatterPlusTexture : Texture.Texture,
          brdfTexture : Texture.Texture,
          ambientTexture : Texture.Texture,
          irradianceTexture : Texture.Texture,
@@ -3196,6 +3349,7 @@ module PhysicallyBased =
          lightTypes : int array,
          lightConeInners : single array,
          lightConeOuters : single array,
+         lightDesireFogs : int array,
          lightShadowIndices : int array,
          lightsCount : int,
          shadowMatrices : single array array,
@@ -3238,15 +3392,17 @@ module PhysicallyBased =
         Gl.Uniform1 (shader.AlbedoTextureUniform, 1)
         Gl.Uniform1 (shader.MaterialTextureUniform, 2)
         Gl.Uniform1 (shader.NormalPlusTextureUniform, 3)
-        Gl.Uniform1 (shader.BrdfTextureUniform, 4)
-        Gl.Uniform1 (shader.AmbientTextureUniform, 5)
-        Gl.Uniform1 (shader.IrradianceTextureUniform, 6)
-        Gl.Uniform1 (shader.EnvironmentFilterTextureUniform, 7)
-        Gl.Uniform1 (shader.SsaoTextureUniform, 8)
+        Gl.Uniform1 (shader.SubdermalPlusTextureUniform, 4)
+        Gl.Uniform1 (shader.ScatterPlusTextureUniform, 5)
+        Gl.Uniform1 (shader.BrdfTextureUniform, 6)
+        Gl.Uniform1 (shader.AmbientTextureUniform, 7)
+        Gl.Uniform1 (shader.IrradianceTextureUniform, 8)
+        Gl.Uniform1 (shader.EnvironmentFilterTextureUniform, 9)
+        Gl.Uniform1 (shader.SsaoTextureUniform, 10)
         for i in 0 .. dec Constants.Render.ShadowTexturesMax do
-            Gl.Uniform1 (shader.ShadowTexturesUniforms.[i], i + 9)
+            Gl.Uniform1 (shader.ShadowTexturesUniforms.[i], i + 11)
         for i in 0 .. dec Constants.Render.ShadowMapsMax do
-            Gl.Uniform1 (shader.ShadowMapsUniforms.[i], i + 9 + Constants.Render.ShadowTexturesMax)
+            Gl.Uniform1 (shader.ShadowMapsUniforms.[i], i + 11 + Constants.Render.ShadowTexturesMax)
         Gl.Uniform3 (shader.LightOriginsUniform, lightOrigins)
         Gl.Uniform3 (shader.LightDirectionsUniform, lightDirections)
         Gl.Uniform3 (shader.LightColorsUniform, lightColors)
@@ -3257,6 +3413,7 @@ module PhysicallyBased =
         Gl.Uniform1 (shader.LightTypesUniform, lightTypes)
         Gl.Uniform1 (shader.LightConeInnersUniform, lightConeInners)
         Gl.Uniform1 (shader.LightConeOutersUniform, lightConeOuters)
+        Gl.Uniform1 (shader.LightDesireFogsUniform, lightDesireFogs)
         Gl.Uniform1 (shader.LightShadowIndicesUniform, lightShadowIndices)
         Gl.Uniform1 (shader.LightsCountUniform, lightsCount)
         for i in 0 .. dec (min Constants.Render.ShadowTexturesMax shadowMatrices.Length) do
@@ -3273,20 +3430,24 @@ module PhysicallyBased =
         Gl.ActiveTexture TextureUnit.Texture3
         Gl.BindTexture (TextureTarget.Texture2d, normalPlusTexture.TextureId)
         Gl.ActiveTexture TextureUnit.Texture4
-        Gl.BindTexture (TextureTarget.Texture2d, brdfTexture.TextureId)
+        Gl.BindTexture (TextureTarget.Texture2d, subdermalPlusTexture.TextureId)
         Gl.ActiveTexture TextureUnit.Texture5
-        Gl.BindTexture (TextureTarget.Texture2d, ambientTexture.TextureId)
+        Gl.BindTexture (TextureTarget.Texture2d, scatterPlusTexture.TextureId)
         Gl.ActiveTexture TextureUnit.Texture6
-        Gl.BindTexture (TextureTarget.Texture2d, irradianceTexture.TextureId)
+        Gl.BindTexture (TextureTarget.Texture2d, brdfTexture.TextureId)
         Gl.ActiveTexture TextureUnit.Texture7
-        Gl.BindTexture (TextureTarget.Texture2d, environmentFilterTexture.TextureId)
+        Gl.BindTexture (TextureTarget.Texture2d, ambientTexture.TextureId)
         Gl.ActiveTexture TextureUnit.Texture8
+        Gl.BindTexture (TextureTarget.Texture2d, irradianceTexture.TextureId)
+        Gl.ActiveTexture TextureUnit.Texture9
+        Gl.BindTexture (TextureTarget.Texture2d, environmentFilterTexture.TextureId)
+        Gl.ActiveTexture TextureUnit.Texture10
         Gl.BindTexture (TextureTarget.Texture2d, ssaoTexture.TextureId)
         for i in 0 .. dec (min shadowTextures.Length Constants.Render.ShadowTexturesMax) do
-            Gl.ActiveTexture (int TextureUnit.Texture0 + 9 + i |> Branchless.reinterpret)
+            Gl.ActiveTexture (int TextureUnit.Texture0 + 11 + i |> Branchless.reinterpret)
             Gl.BindTexture (TextureTarget.Texture2d, shadowTextures.[i].TextureId)
         for i in 0 .. dec (min shadowMaps.Length Constants.Render.ShadowMapsMax) do
-            Gl.ActiveTexture (int TextureUnit.Texture0 + 9 + i + Constants.Render.ShadowTexturesMax |> Branchless.reinterpret)
+            Gl.ActiveTexture (int TextureUnit.Texture0 + 11 + i + Constants.Render.ShadowTexturesMax |> Branchless.reinterpret)
             Gl.BindTexture (TextureTarget.TextureCubeMap, shadowMaps.[i].TextureId)
         Hl.Assert ()
 
@@ -3324,11 +3485,15 @@ module PhysicallyBased =
         Gl.BindTexture (TextureTarget.Texture2d, 0u)
         Gl.ActiveTexture TextureUnit.Texture8
         Gl.BindTexture (TextureTarget.Texture2d, 0u)
+        Gl.ActiveTexture TextureUnit.Texture9
+        Gl.BindTexture (TextureTarget.Texture2d, 0u)
+        Gl.ActiveTexture TextureUnit.Texture10
+        Gl.BindTexture (TextureTarget.Texture2d, 0u)
         for i in 0 .. dec (min shadowTextures.Length Constants.Render.ShadowTexturesMax) do
-            Gl.ActiveTexture (int TextureUnit.Texture0 + 9 + i |> Branchless.reinterpret)
+            Gl.ActiveTexture (int TextureUnit.Texture0 + 11 + i |> Branchless.reinterpret)
             Gl.BindTexture (TextureTarget.Texture2d, 0u)
         for i in 0 .. dec (min shadowMaps.Length Constants.Render.ShadowMapsMax) do
-            Gl.ActiveTexture (int TextureUnit.Texture0 + 9 + i + Constants.Render.ShadowTexturesMax |> Branchless.reinterpret)
+            Gl.ActiveTexture (int TextureUnit.Texture0 + 11 + i + Constants.Render.ShadowTexturesMax |> Branchless.reinterpret)
             Gl.BindTexture (TextureTarget.TextureCubeMap, 0u)
         Hl.Assert ()
 
@@ -3420,6 +3585,7 @@ module PhysicallyBased =
                     use assimp = new Assimp.AssimpContext ()
                     try let scene = assimp.ImportFile (filePath, Constants.Assimp.PostProcessSteps)
                         scene.IndexDatasToMetadata () // avoid polluting memory with face data
+                        scene.ClearColorData () // avoid polluting memory with unused color data
                         scenes.[filePath] <- scene
                         Right scene
                     with exn ->
@@ -3435,98 +3601,96 @@ module PhysicallyBased =
                 match TryCreatePhysicallyBasedMaterials (renderable, dirPath, defaultMaterial, textureClient, scene) with
                 | Right materials ->
                     let animated = scene.Animations.Count <> 0
-                    let geometriesEir =
+                    let geometries =
                         if animated
-                        then TryCreatePhysicallyBasedAnimatedGeometries (renderable, filePath, scene)
-                        else TryCreatePhysicallyBasedStaticGeometries (renderable, filePath, scene)
-                    match geometriesEir with
-                    | Right geometries ->
+                        then CreatePhysicallyBasedAnimatedGeometries (renderable, scene)
+                        else CreatePhysicallyBasedStaticGeometries (renderable, scene)
 
-                        // collect light nodes
-                        let lightNodes =
-                            [|for i in 0 .. dec scene.LightCount do
-                                let light = scene.Lights.[i]
-                                let node = scene.RootNode.FindNode light.Name
-                                yield (light, node)|]
+                    // collect light nodes
+                    let lightNodes =
+                        [|for i in 0 .. dec scene.LightCount do
+                            let light = scene.Lights.[i]
+                            let node = scene.RootNode.FindNode light.Name
+                            yield (light, node)|]
 
-                        // construct bounds and hierarchy
-                        // TODO: P1: consider sanitizing incoming names. Corrupted or incompatible names cause subtle hierarchy bugs.
-                        let lightProbes = SList.make ()
-                        let lights = SList.make ()
-                        let surfaces = SList.make ()
-                        let mutable bounds = box3Zero
-                        let hierarchy =
-                            scene.RootNode.Map ([||], m4Identity, fun node names transform ->
-                                [|// collect node
-                                  yield PhysicallyBasedNode names
+                    // construct bounds and hierarchy
+                    // TODO: P1: consider sanitizing incoming names. Corrupted or incompatible names cause subtle hierarchy bugs.
+                    let lightProbes = SList.make ()
+                    let lights = SList.make ()
+                    let surfaces = SList.make ()
+                    let mutable bounds = box3Zero
+                    let hierarchy =
+                        scene.RootNode.Map ([||], m4Identity, fun node names transform ->
 
-                                  // attempt to collect light probe
-                                  let lastNameLower = Array.last(names).ToLowerInvariant()
-                                  if lastNameLower.Contains "probe" && not (lastNameLower.Contains "probes") then
-                                    let names = Array.append names [|"LightProbe"|]
-                                    let lightProbeOrigin = transform.Translation
-                                    let lightProbeBounds =
-                                        box3
-                                            (v3Dup Constants.Render.LightProbeSizeDefault * -0.5f + lightProbeOrigin)
-                                            (v3Dup Constants.Render.LightProbeSizeDefault)
-                                    let lightProbe =
-                                        { LightProbeNames = names
-                                          LightProbeMatrixIsIdentity = transform.IsIdentity
-                                          LightProbeMatrix = transform
-                                          LightProbeBounds = lightProbeBounds }
-                                    lightProbes.Add lightProbe
-                                    yield PhysicallyBasedLightProbe lightProbe
+                            [|// collect node
+                              yield PhysicallyBasedNode names
 
-                                  // collect light
-                                  // NOTE: this is an n^2 algorithm to deal with nodes having no light information
-                                  for i in 0 .. dec lightNodes.Length do
-                                    let (light, lightNode) = lightNodes.[i]
-                                    if lightNode = node then
-                                        let names = Array.append names [|"Light" + if i > 0 then string i else ""|]
-                                        let lightMatrix = Assimp.ExportMatrix node.TransformWorld
-                                        let color = color (min 1.0f light.ColorDiffuse.R) (min 1.0f light.ColorDiffuse.G) (min 1.0f light.ColorDiffuse.B) 1.0f
-                                        let lightType =
-                                            match light.LightType with
-                                            | Assimp.LightSourceType.Spot -> SpotLight (light.AngleInnerCone, light.AngleOuterCone)
-                                            | _ -> PointLight // default to point light
-                                        let physicallyBasedLight =
-                                            { LightNames = names
-                                              LightMatrixIsIdentity = lightMatrix.IsIdentity
-                                              LightMatrix = lightMatrix
-                                              LightColor = color
-                                              LightBrightness = Constants.Render.BrightnessDefault // TODO: figure out if we can populate this properly.
-                                              LightAttenuationLinear = if light.AttenuationLinear > 0.0f then light.AttenuationLinear else Constants.Render.AttenuationLinearDefault
-                                              LightAttenuationQuadratic = if light.AttenuationQuadratic > 0.0f then light.AttenuationQuadratic else Constants.Render.AttenuationQuadraticDefault
-                                              LightCutoff = Constants.Render.LightCutoffDefault // TODO: figure out if we can populate this properly.
-                                              LightType = lightType
-                                              LightDesireShadows = false }
-                                        lights.Add physicallyBasedLight
-                                        yield PhysicallyBasedLight physicallyBasedLight
+                              // attempt to collect light probe
+                              let lastNameLower = Array.last(names).ToLowerInvariant()
+                              if lastNameLower.Contains "probe" && not (lastNameLower.Contains "probes") then
+                                let names = Array.append names [|"LightProbe"|]
+                                let lightProbeOrigin = transform.Translation
+                                let lightProbeBounds =
+                                    box3
+                                        (v3Dup Constants.Render.LightProbeSizeDefault * -0.5f + lightProbeOrigin)
+                                        (v3Dup Constants.Render.LightProbeSizeDefault)
+                                let lightProbe =
+                                    { LightProbeNames = names
+                                      LightProbeMatrixIsIdentity = transform.IsIdentity
+                                      LightProbeMatrix = transform
+                                      LightProbeBounds = lightProbeBounds }
+                                lightProbes.Add lightProbe
+                                yield PhysicallyBasedLightProbe lightProbe
 
-                                  // collect surfaces
-                                  for i in 0 .. dec node.MeshIndices.Count do
-                                    let names = Array.append names [|"Geometry" + if i > 0 then string (inc i) else ""|]
-                                    let meshIndex = node.MeshIndices.[i]
-                                    let materialIndex = scene.Meshes.[meshIndex].MaterialIndex
-                                    let (properties, material) = materials.[materialIndex]
-                                    let geometry = geometries.[meshIndex]
-                                    let surface = PhysicallyBasedSurface.make names transform geometry.Bounds properties material materialIndex node geometry
-                                    bounds <- bounds.Combine (geometry.Bounds.Transform transform)
-                                    surfaces.Add surface
-                                    yield PhysicallyBasedSurface surface|] |>
-                                TreeNode)
+                              // collect light
+                              // NOTE: this is an n^2 algorithm to deal with nodes having no light information
+                              for i in 0 .. dec lightNodes.Length do
+                                let (light, lightNode) = lightNodes.[i]
+                                if lightNode = node then
+                                    let names = Array.append names [|"Light" + if i > 0 then string i else ""|]
+                                    let lightMatrix = Assimp.ExportMatrix node.TransformWorld
+                                    let color = color (min 1.0f light.ColorDiffuse.R) (min 1.0f light.ColorDiffuse.G) (min 1.0f light.ColorDiffuse.B) 1.0f
+                                    let lightType =
+                                        match light.LightType with
+                                        | Assimp.LightSourceType.Spot -> SpotLight (light.AngleInnerCone, light.AngleOuterCone)
+                                        | _ -> PointLight // default to point light
+                                    let physicallyBasedLight =
+                                        { LightNames = names
+                                          LightMatrixIsIdentity = lightMatrix.IsIdentity
+                                          LightMatrix = lightMatrix
+                                          LightColor = color
+                                          LightBrightness = Constants.Render.BrightnessDefault // TODO: figure out if we can populate this properly.
+                                          LightAttenuationLinear = if light.AttenuationLinear > 0.0f then light.AttenuationLinear else Constants.Render.AttenuationLinearDefault
+                                          LightAttenuationQuadratic = if light.AttenuationQuadratic > 0.0f then light.AttenuationQuadratic else Constants.Render.AttenuationQuadraticDefault
+                                          LightCutoff = Constants.Render.LightCutoffDefault // TODO: figure out if we can populate this properly.
+                                          LightType = lightType
+                                          LightDesireShadows = false }
+                                    lights.Add physicallyBasedLight
+                                    yield PhysicallyBasedLight physicallyBasedLight
 
-                        // fin
-                        Right
-                            { Animated = animated
-                              Bounds = bounds
-                              LightProbes = Array.ofSeq lightProbes
-                              Lights = Array.ofSeq lights
-                              Surfaces = Array.ofSeq surfaces
-                              SceneOpt = Some scene
-                              PhysicallyBasedHierarchy = hierarchy }
+                              // collect surfaces
+                              for i in 0 .. dec node.MeshIndices.Count do
+                                let names = Array.append names [|"Geometry" + if i > 0 then string (inc i) else ""|]
+                                let meshIndex = node.MeshIndices.[i]
+                                let materialIndex = scene.Meshes.[meshIndex].MaterialIndex
+                                let (properties, material) = materials.[materialIndex]
+                                let geometry = geometries.[meshIndex]
+                                let surface = PhysicallyBasedSurface.make names transform geometry.Bounds properties material materialIndex node geometry
+                                bounds <- bounds.Combine (geometry.Bounds.Transform transform)
+                                surfaces.Add surface
+                                yield PhysicallyBasedSurface surface|] |>
+                            TreeNode)
 
-                    // error
-                    | Left error -> Left error
+                    // fin
+                    Right
+                        { Animated = animated
+                          Bounds = bounds
+                          LightProbes = Array.ofSeq lightProbes
+                          Lights = Array.ofSeq lights
+                          Surfaces = Array.ofSeq surfaces
+                          SceneOpt = Some scene
+                          PhysicallyBasedHierarchy = hierarchy }
+
+                // error
                 | Left error -> Left ("Could not load materials for static model in file name '" + filePath + "' due to: " + error)
             | Left error -> Left error

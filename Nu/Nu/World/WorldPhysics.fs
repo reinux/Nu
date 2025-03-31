@@ -17,6 +17,9 @@ module WorldPhysics =
         static member internal getPhysicsEngine3d world =
             world.Subsystems.PhysicsEngine3d
 
+        static member internal getRendererPhysics3d world =
+            world.Subsystems.RendererPhysics3d
+
         /// Localize a body shape to a specific size.
         static member localizeBodyShape (size : Vector3) (bodyShape : BodyShape) =
             Physics.localizeBodyShape size bodyShape
@@ -46,6 +49,12 @@ module WorldPhysics =
                         let world = World.publishPlus bodyId Game.Handle.BodyRemovingEvent eventTrace Game.Handle false false world
                         world)
                         world message.BodyIds
+                | SetBodyEnabledMessage message ->
+                    if not message.Enabled then
+                        let eventTrace = EventTrace.debug "World" "handlePhysicsMessage2d" "SetBodyEnabledMessage" EventTrace.empty
+                        let world = World.publishPlus { BodyId = message.BodyId } Game.Handle.BodySeparationImplicitEvent eventTrace Game.Handle false false world
+                        world
+                    else world
                 | _ -> world
             (World.getPhysicsEngine2d world).HandleMessage message
             world
@@ -87,12 +96,12 @@ module WorldPhysics =
         static member handlePhysicsMessages3d (messages : PhysicsMessage seq) world =
             Seq.fold (fun world message -> World.handlePhysicsMessage3d message world) world messages
 
-        /// Check that the world contains a body with the given physics id.
+        /// Check that the world contains a body with the given body id.
         static member getBodyExists bodyId world =
             world.Subsystems.PhysicsEngine3d.GetBodyExists bodyId ||
             world.Subsystems.PhysicsEngine2d.GetBodyExists bodyId
 
-        /// Get the contact normals of the body with the given physics id.
+        /// Get the contact normals of the body with the given body id.
         static member getBodyContactNormals bodyId world =
             if world.Subsystems.PhysicsEngine3d.GetBodyExists bodyId then
                 world.Subsystems.PhysicsEngine3d.GetBodyContactNormals bodyId
@@ -102,7 +111,7 @@ module WorldPhysics =
                 Log.info ("Body for '" + scstring bodyId + "' not found.")
                 [||]
 
-        /// Get the linear velocity of the body with the given physics id.
+        /// Get the linear velocity of the body with the given body id.
         static member getBodyLinearVelocity bodyId world =
             if world.Subsystems.PhysicsEngine3d.GetBodyExists bodyId then
                 world.Subsystems.PhysicsEngine3d.GetBodyLinearVelocity bodyId
@@ -112,7 +121,7 @@ module WorldPhysics =
                 Log.info ("Body for '" + scstring bodyId + "' not found.")
                 v3Zero
 
-        /// Get the angular velocity of the body with the given physics id.
+        /// Get the angular velocity of the body with the given body id.
         static member getBodyAngularVelocity bodyId world =
             if world.Subsystems.PhysicsEngine3d.GetBodyExists bodyId then
                 world.Subsystems.PhysicsEngine3d.GetBodyAngularVelocity bodyId
@@ -122,7 +131,7 @@ module WorldPhysics =
                 Log.info ("Body for '" + scstring bodyId + "' not found.")
                 v3Zero
 
-        /// Get the contact normals where the body with the given physics id is touching the ground.
+        /// Get the contact normals where the body with the given body id is touching the ground.
         static member getBodyToGroundContactNormals bodyId world =
             if world.Subsystems.PhysicsEngine3d.GetBodyExists bodyId then
                 world.Subsystems.PhysicsEngine3d.GetBodyToGroundContactNormals bodyId
@@ -132,7 +141,7 @@ module WorldPhysics =
                 Log.info ("Body for '" + scstring bodyId + "' not found.")
                 [||]
 
-        /// Get a contact normal where the body with the given physics id is touching the ground (if one exists).
+        /// Get a contact normal where the body with the given body id is touching the ground (if one exists).
         static member getBodyToGroundContactNormalOpt bodyId world =
             if world.Subsystems.PhysicsEngine3d.GetBodyExists bodyId then
                 world.Subsystems.PhysicsEngine3d.GetBodyToGroundContactNormalOpt bodyId
@@ -142,7 +151,7 @@ module WorldPhysics =
                 Log.info ("Body for '" + scstring bodyId + "' not found.")
                 None
 
-        /// Get a contact tangent where the body with the given physics id is touching the ground (if one exists).
+        /// Get a contact tangent where the body with the given body id is touching the ground (if one exists).
         static member getBodyToGroundContactTangentOpt bodyId world =
             if world.Subsystems.PhysicsEngine3d.GetBodyExists bodyId then
                 world.Subsystems.PhysicsEngine3d.GetBodyToGroundContactTangentOpt bodyId
@@ -152,7 +161,7 @@ module WorldPhysics =
                 Log.info ("Body for '" + scstring bodyId + "' not found.")
                 None
 
-        /// Check that the body with the given physics id is on the ground.
+        /// Check that the body with the given body id is on the ground.
         static member getBodyGrounded bodyId world =
             if world.Subsystems.PhysicsEngine3d.GetBodyExists bodyId then
                 world.Subsystems.PhysicsEngine3d.GetBodyGrounded bodyId
@@ -162,13 +171,23 @@ module WorldPhysics =
                 Log.info ("Body for '" + scstring bodyId + "' not found.")
                 false
 
+        /// Check that the body with the given body id is a sensor.
+        static member getBodySensor bodyId world =
+            if world.Subsystems.PhysicsEngine3d.GetBodyExists bodyId then
+                world.Subsystems.PhysicsEngine3d.GetBodySensor bodyId
+            elif world.Subsystems.PhysicsEngine2d.GetBodyExists bodyId then
+                world.Subsystems.PhysicsEngine2d.GetBodySensor bodyId
+            else
+                Log.info ("Body for '" + scstring bodyId + "' not found.")
+                false
+
         /// Ray cast against 3d physics bodies.
-        static member rayCast3dBodies segment collisionMask closestOnly world =
-            world.Subsystems.PhysicsEngine3d.RayCast (segment, collisionMask, closestOnly)
+        static member rayCast3dBodies ray collisionMask closestOnly world =
+            world.Subsystems.PhysicsEngine3d.RayCast (ray, collisionMask, closestOnly)
 
         /// Ray cast against 2d physics bodies.
-        static member rayCast2dBodies segment collisionMask closestOnly world =
-            world.Subsystems.PhysicsEngine2d.RayCast (segment, collisionMask, closestOnly)
+        static member rayCast2dBodies ray collisionMask closestOnly world =
+            world.Subsystems.PhysicsEngine2d.RayCast (ray, collisionMask, closestOnly)
 
         /// Send a physics message to create a physics body.
         static member createBody is2d bodyId (bodyProperties : BodyProperties) world =
@@ -212,80 +231,75 @@ module WorldPhysics =
             then World.handlePhysicsMessage3d destroyBodyJointMessage world
             else World.handlePhysicsMessage2d destroyBodyJointMessage world
 
-        /// Send a physics message to set the enabled-ness of a body with the given physics id.
+        /// Send a physics message to set the enabled-ness of a body with the given body id.
         static member setBodyEnabled enabled bodyId world =
             let setBodyEnabledMessage = SetBodyEnabledMessage { BodyId = bodyId; Enabled = enabled }
             let world = World.handlePhysicsMessage3d setBodyEnabledMessage world
             let world = World.handlePhysicsMessage2d setBodyEnabledMessage world
             world
 
-        /// Send a physics message to set the position of a body with the given physics id.
+        /// Send a physics message to set the position of a body with the given body id.
         static member setBodyCenter center bodyId world =
             let setBodyCenterMessage = SetBodyCenterMessage { BodyId = bodyId; Center = center }
             let world = World.handlePhysicsMessage3d setBodyCenterMessage world
             let world = World.handlePhysicsMessage2d setBodyCenterMessage world
             world
 
-        /// Send a physics message to set the rotation of a body with the given physics id.
+        /// Send a physics message to set the rotation of a body with the given body id.
         static member setBodyRotation rotation bodyId world =
             let setBodyRotationMessage = SetBodyRotationMessage { BodyId = bodyId; Rotation = rotation }
             let world = World.handlePhysicsMessage3d setBodyRotationMessage world
             let world = World.handlePhysicsMessage2d setBodyRotationMessage world
             world
 
-        /// Send a physics message to set the linear velocity of a body with the given physics id.
+        /// Send a physics message to set the linear velocity of a body with the given body id.
         static member setBodyLinearVelocity linearVelocity bodyId world =
             let setBodyLinearVelocityMessage = SetBodyLinearVelocityMessage { BodyId = bodyId; LinearVelocity = linearVelocity }
             let world = World.handlePhysicsMessage3d setBodyLinearVelocityMessage world
             let world = World.handlePhysicsMessage2d setBodyLinearVelocityMessage world
             world
 
-        /// Send a physics message to set the angular velocity of a body with the given physics id.
+        /// Send a physics message to set the angular velocity of a body with the given body id.
         static member setBodyAngularVelocity angularVelocity bodyId world =
             let setBodyAngularVelocityMessage = SetBodyAngularVelocityMessage { BodyId = bodyId; AngularVelocity = angularVelocity }
             let world = World.handlePhysicsMessage3d setBodyAngularVelocityMessage world
             let world = World.handlePhysicsMessage2d setBodyAngularVelocityMessage world
             world
 
-        /// Send a physics message to apply linear impulse to a body with the given physics id.
+        /// Send a physics message to apply linear impulse to a body with the given body id.
         static member applyBodyLinearImpulse linearImpulse originWorldOpt bodyId world =
             let applyBodyLinearImpulseMessage = ApplyBodyLinearImpulseMessage { BodyId = bodyId; LinearImpulse = linearImpulse; OriginWorldOpt = originWorldOpt }
             let world = World.handlePhysicsMessage3d applyBodyLinearImpulseMessage world
             let world = World.handlePhysicsMessage2d applyBodyLinearImpulseMessage world
             world
 
-        /// Send a physics message to apply angular impulse to a body with the given physics id.
+        /// Send a physics message to apply angular impulse to a body with the given body id.
         static member applyBodyAngularImpulse angularImpulse bodyId world =
             let applyBodyAngularImpulseMessage = ApplyBodyAngularImpulseMessage { BodyId = bodyId; AngularImpulse = angularImpulse }
             let world = World.handlePhysicsMessage3d applyBodyAngularImpulseMessage world
             let world = World.handlePhysicsMessage2d applyBodyAngularImpulseMessage world
             world
 
-        /// Send a physics message to apply force to a body with the given physics id.
+        /// Send a physics message to apply force to a body with the given body id.
         static member applyBodyForce force originWorldOpt bodyId world =
             let applyBodyForceMessage = ApplyBodyForceMessage { BodyId = bodyId; Force = force; OriginWorldOpt = originWorldOpt }
             let world = World.handlePhysicsMessage3d applyBodyForceMessage world
             let world = World.handlePhysicsMessage2d applyBodyForceMessage world
             world
 
-        /// Send a physics message to apply torque to a body with the given physics id.
+        /// Send a physics message to apply torque to a body with the given body id.
         static member applyBodyTorque torque bodyId world =
             let applyBodyTorqueMessage = ApplyBodyTorqueMessage { BodyId = bodyId; Torque = torque }
             let world = World.handlePhysicsMessage3d applyBodyTorqueMessage world
             let world = World.handlePhysicsMessage2d applyBodyTorqueMessage world
             world
 
-        /// Send a physics message to jump to a body with the given physics id (KinematicCharacter only).
+        /// Send a physics message to jump to a body with the given body id (KinematicCharacter only).
         static member jumpBody canJumpInAir jumpSpeed bodyId world =
             let jumpBodyMessage = JumpBodyMessage { BodyId = bodyId; CanJumpInAir = canJumpInAir; JumpSpeed = jumpSpeed }
             let world = World.handlePhysicsMessage3d jumpBodyMessage world
             let world = World.handlePhysicsMessage2d jumpBodyMessage world
             world
-
-        /// Clear all the physics objects in the built-in physics subsystems.
-        static member internal clearPhysics world =
-            world.Subsystems.PhysicsEngine3d.ClearInternal ()
-            world.Subsystems.PhysicsEngine2d.ClearInternal ()
 
         /// Reregister all currently selected 3d physics.
         static member reregisterPhysics world =
