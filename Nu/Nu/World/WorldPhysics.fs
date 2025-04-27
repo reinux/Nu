@@ -88,6 +88,14 @@ module WorldPhysics =
                         let world = World.publishPlus bodyId Game.Handle.BodyRemovingEvent eventTrace Game.Handle false false world
                         world)
                         world message.BodyIds
+                | SetBodyEnabledMessage message ->
+                    if not message.Enabled then
+                        match message.BodyId.BodySource with
+                        | :? Entity ->
+                            let eventTrace = EventTrace.debug "World" "handlePhysicsMessage3d" "SetBodyEnabledMessage" EventTrace.empty
+                            World.publishPlus { BodyId = message.BodyId } Game.Handle.BodySeparationImplicitEvent eventTrace Game.Handle false false world
+                        | _ -> world
+                    else world
                 | _ -> world
             (World.getPhysicsEngine3d world).HandleMessage message
             world

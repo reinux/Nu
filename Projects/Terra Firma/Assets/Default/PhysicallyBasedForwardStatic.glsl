@@ -63,8 +63,8 @@ const float GAMMA = 2.2;
 const float ATTENUATION_CONSTANT = 1.0f;
 const int LIGHT_MAPS_MAX = 2;
 const int LIGHTS_MAX = 8;
-const int SHADOW_TEXTURES_MAX = 16;
-const int SHADOW_MAPS_MAX = 4;
+const int SHADOW_TEXTURES_MAX = 9;
+const int SHADOW_MAPS_MAX = 9;
 const float SHADOW_FOV_MAX = 2.1;
 const float SHADOW_SEAM_INSET = 0.001;
 
@@ -84,6 +84,10 @@ uniform float lightShadowBias;
 uniform float lightShadowExponent;
 uniform float lightShadowDensity;
 uniform float lightShadowSampleScalar;
+uniform int fogEnabled;
+uniform float fogStart;
+uniform float fogFinish;
+uniform vec4 fogColor;
 uniform int ssvfEnabled;
 uniform int ssvfSteps;
 uniform float ssvfAsymmetry;
@@ -121,6 +125,7 @@ uniform float lightConeOuters[LIGHTS_MAX];
 uniform int lightDesireFogs[LIGHTS_MAX];
 uniform int lightShadowIndices[LIGHTS_MAX];
 uniform int lightsCount;
+uniform float shadowNear; // NOTE: currently unused.
 uniform mat4 shadowMatrices[SHADOW_TEXTURES_MAX];
 
 in vec4 positionOut;
@@ -230,27 +235,7 @@ vec3 fresnelSchlickRoughness(float cosTheta, vec3 f0, float roughness)
     return f0 + (max(vec3(1.0 - roughness), f0) - f0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
-float computeShadowTextureScalar(vec4 position, bool lightDirectional, float lightConeOuter, mat4 shadowMatrix, sampler2D shadowTexture)
-{
-    vec4 positionShadow = shadowMatrix * position;
-    vec3 shadowTexCoordsProj = positionShadow.xyz / positionShadow.w;
-    if (shadowTexCoordsProj.x > -1.0 + SHADOW_SEAM_INSET && shadowTexCoordsProj.x < 1.0 - SHADOW_SEAM_INSET &&
-        shadowTexCoordsProj.y > -1.0 + SHADOW_SEAM_INSET && shadowTexCoordsProj.y < 1.0 - SHADOW_SEAM_INSET &&
-        shadowTexCoordsProj.z > -1.0 + SHADOW_SEAM_INSET && shadowTexCoordsProj.z < 1.0 - SHADOW_SEAM_INSET)
-    {
-        vec2 shadowTexCoords = shadowTexCoordsProj.xy * 0.5 + 0.5;
-        float shadowZ = !lightDirectional ? shadowTexCoordsProj.z * 0.5 + 0.5 : shadowTexCoordsProj.z;
-        float shadowZExp = exp(-lightShadowExponent * shadowZ);
-        float shadowDepthExp = texture(shadowTexture, shadowTexCoords).y;
-        float shadowScalar = clamp(shadowZExp * shadowDepthExp, 0.0, 1.0);
-        shadowScalar = pow(shadowScalar, lightShadowDensity);
-        shadowScalar = lightConeOuter > SHADOW_FOV_MAX ? fadeShadowScalar(shadowTexCoords, shadowScalar) : shadowScalar;
-        return shadowScalar;
-    }
-    return 1.0;
-}
-
-float computeShadowMapScalar(vec4 position, vec3 lightOrigin, samplerCube shadowMap)
+float computeShadowScalarPoint(vec4 position, vec3 lightOrigin, samplerCube shadowMap)
 {
     vec3 positionShadow = position.xyz - lightOrigin;
     float shadowZ = length(positionShadow);
@@ -267,6 +252,45 @@ float computeShadowMapScalar(vec4 position, vec3 lightOrigin, samplerCube shadow
         }
     }
     return 1.0 - shadowHits / (lightShadowSamples * lightShadowSamples * lightShadowSamples);
+}
+
+float computeShadowScalarSpot(vec4 position, float lightConeOuter, mat4 shadowMatrix, sampler2D shadowTexture)
+{
+    vec4 positionShadowClip = shadowMatrix * position;
+    vec3 shadowTexCoordsProj = positionShadowClip.xyz / positionShadowClip.w;
+    if (shadowTexCoordsProj.x > -1.0 && shadowTexCoordsProj.x < 1.0 &&
+        shadowTexCoordsProj.y > -1.0 && shadowTexCoordsProj.y < 1.0 &&
+        shadowTexCoordsProj.z > -1.0 && shadowTexCoordsProj.z < 1.0)
+    {
+        vec2 shadowTexCoords = shadowTexCoordsProj.xy * 0.5 + 0.5;
+        float shadowZ = shadowTexCoordsProj.z * 0.5 + 0.5;
+        float shadowZExp = exp(-lightShadowExponent * shadowZ);
+        float shadowDepthExp = texture(shadowTexture, shadowTexCoords).y;
+        float shadowScalar = clamp(shadowZExp * shadowDepthExp, 0.0, 1.0);
+        shadowScalar = pow(shadowScalar, lightShadowDensity);
+        shadowScalar = lightConeOuter > SHADOW_FOV_MAX ? fadeShadowScalar(shadowTexCoords, shadowScalar) : shadowScalar;
+        return shadowScalar;
+    }
+    return 1.0;
+}
+
+float computeShadowScalarDirectional(vec4 position, mat4 shadowMatrix, sampler2D shadowTexture)
+{
+    vec4 positionShadowClip = shadowMatrix * position;
+    vec3 shadowTexCoordsProj = positionShadowClip.xyz / positionShadowClip.w;
+    if (shadowTexCoordsProj.x > -1.0 + SHADOW_SEAM_INSET && shadowTexCoordsProj.x < 1.0 - SHADOW_SEAM_INSET &&
+        shadowTexCoordsProj.y > -1.0 + SHADOW_SEAM_INSET && shadowTexCoordsProj.y < 1.0 - SHADOW_SEAM_INSET &&
+        shadowTexCoordsProj.z > -1.0 + SHADOW_SEAM_INSET && shadowTexCoordsProj.z < 1.0 - SHADOW_SEAM_INSET)
+    {
+        vec2 shadowTexCoords = shadowTexCoordsProj.xy * 0.5 + 0.5;
+        float shadowZ = shadowTexCoordsProj.z;
+        float shadowZExp = exp(-lightShadowExponent * shadowZ);
+        float shadowDepthExp = texture(shadowTexture, shadowTexCoords).y;
+        float shadowScalar = clamp(shadowZExp * shadowDepthExp, 0.0, 1.0);
+        shadowScalar = pow(shadowScalar, lightShadowDensity);
+        return shadowScalar;
+    }
+    return 1.0;
 }
 
 vec3 computeFogAccumPoint(vec4 position, int lightIndex)
@@ -385,8 +409,8 @@ vec3 computeFogAccumSpot(vec4 position, int lightIndex)
         for (int i = 0; i < ssvfSteps; ++i)
         {
             // step through ray, accumulating fog light moment
-            vec4 positionShadow = shadowMatrix * vec4(currentPosition, 1.0);
-            vec3 shadowTexCoordsProj = positionShadow.xyz / positionShadow.w;
+            vec4 positionShadowClip = shadowMatrix * vec4(currentPosition, 1.0);
+            vec3 shadowTexCoordsProj = positionShadowClip.xyz / positionShadowClip.w;
             vec2 shadowTexCoords = vec2(shadowTexCoordsProj.x, shadowTexCoordsProj.y) * 0.5 + 0.5;
             bool shadowTexCoordsInRange = shadowTexCoords.x >= 0.0 && shadowTexCoords.x < 1.0 && shadowTexCoords.y >= 0.0 && shadowTexCoords.y < 1.0;
             float shadowZ = shadowTexCoordsProj.z * 0.5 + 0.5;
@@ -459,8 +483,8 @@ vec3 computeFogAccumDirectional(vec4 position, int lightIndex)
         for (int i = 0; i < ssvfSteps; ++i)
         {
             // step through ray, accumulating fog light moment
-            vec4 positionShadow = shadowMatrix * vec4(currentPosition, 1.0);
-            vec3 shadowTexCoordsProj = positionShadow.xyz / positionShadow.w;
+            vec4 positionShadowClip = shadowMatrix * vec4(currentPosition, 1.0);
+            vec3 shadowTexCoordsProj = positionShadowClip.xyz / positionShadowClip.w;
             vec2 shadowTexCoords = vec2(shadowTexCoordsProj.x, shadowTexCoordsProj.y) * 0.5 + 0.5;
             bool shadowTexCoordsInRange = shadowTexCoords.x >= 0.0 && shadowTexCoords.x < 1.0 && shadowTexCoords.y >= 0.0 && shadowTexCoords.y < 1.0;
             float shadowZ = shadowTexCoordsProj.z * 0.5 + 0.5;
@@ -570,10 +594,14 @@ void main()
         int shadowIndex = lightShadowIndices[i];
         float shadowScalar = 1.0f;
         if (shadowIndex >= 0)
-            shadowScalar =
-                shadowIndex < SHADOW_TEXTURES_MAX ?
-                computeShadowTextureScalar(position, lightDirectional, lightConeOuters[i], shadowMatrices[shadowIndex], shadowTextures[shadowIndex]) :
-                computeShadowMapScalar(position, lightOrigin, shadowMaps[shadowIndex - SHADOW_TEXTURES_MAX]);
+        {
+            switch (lightType)
+            {
+                case 0: { shadowScalar = computeShadowScalarPoint(position, lightOrigin, shadowMaps[shadowIndex - SHADOW_TEXTURES_MAX]); break; } // point
+                case 1: { shadowScalar = computeShadowScalarSpot(position, lightConeOuters[i], shadowMatrices[shadowIndex], shadowTextures[shadowIndex]); break; } // spot
+                default: { shadowScalar = computeShadowScalarDirectional(position, shadowMatrices[shadowIndex], shadowTextures[shadowIndex]); break; } // directional
+            }
+        }
 
         // cook-torrance brdf
         float hDotV = max(dot(h, v), 0.0);
@@ -601,9 +629,9 @@ void main()
             vec3 fog = vec3(0.0);
             switch (lightType)
             {
-            case 0: { fog = computeFogAccumPoint(position, i); break; } // point
-            case 1: { fog = computeFogAccumSpot(position, i); break; } // spot
-            default: { fog = computeFogAccumDirectional(position, i); break; } // directional
+                case 0: { fog = computeFogAccumPoint(position, i); break; } // point
+                case 1: { fog = computeFogAccumSpot(position, i); break; } // spot
+                default: { fog = computeFogAccumDirectional(position, i); break; } // directional
             }
             lightAccum += fog;
         }
@@ -612,8 +640,8 @@ void main()
     // determine light map indices, including their validity
     int lm1 = lightMapsCount > 0 && !ignoreLightMaps ? 0 : -1;
     int lm2 = lightMapsCount > 1 && !ignoreLightMaps ? 1 : -1;
-    if (lm1 != -1 && !inBounds(position.xyz, lightMapMins[lm1], lightMapSizes[lm1])) { lm1 = lm2; lm2 = -1; }
     if (lm2 != -1 && !inBounds(position.xyz, lightMapMins[lm2], lightMapSizes[lm2])) lm2 = -1;
+    if (lm1 != -1 && !inBounds(position.xyz, lightMapMins[lm1], lightMapSizes[lm1])) lm1 = lm2;
 
     // compute light mapping terms
     vec3 ambientColor = vec3(0.0);
@@ -677,8 +705,18 @@ void main()
     vec2 environmentBrdf = texture(brdfTexture, vec2(nDotV, roughness)).rg;
     vec3 specular = environmentFilter * (f * environmentBrdf.x + environmentBrdf.y) * ambientSpecular;
 
-    // compute color composition with tone mapping and gamma correction
+    // compute color composition
     vec3 color = lightAccum + diffuse + emission * albedo.rgb + specular;
+
+    // compute and apply global fog when enabled
+    if (fogEnabled == 1)
+    {
+        float depth = length(position.xyz - eyeCenter);
+        float fogFactor = smoothstep(fogStart / fogFinish, 1.0, min(1.0, depth / fogFinish)) * fogColor.a;
+        color = color * (1.0 - fogFactor) + fogColor.rgb * fogFactor;
+    }
+
+    // apply tone mapping and gamma correction
     color = color / (color + vec3(1.0));
     color = pow(color, vec3(1.0 / GAMMA));
 

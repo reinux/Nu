@@ -30,7 +30,7 @@ type Nu () =
             Thread.CurrentThread.CurrentCulture <- Globalization.CultureInfo.InvariantCulture
 
             // init logging
-            Log.init (Some "Log.txt")
+            Log.init (Some Constants.Paths.LogFilePath)
 
             // init math module
             Math.Init ()
@@ -217,7 +217,7 @@ module WorldModule3 =
 
         /// Update late bindings internally stored by the engine from types found in the given assemblies.
         static member updateLateBindings (assemblies : Assembly array) world =
-            WorldImNui.Reinitializing <- true
+            WorldImSim.Reinitializing <- true
             Content.UpdateLateBindingsCount <- inc Content.UpdateLateBindingsCount
             World.clearEntityFromClipboard world // HACK: clear what's on the clipboard rather than changing its dispatcher instance.
             world.WorldExtension.Plugin.CleanUp ()
@@ -292,10 +292,10 @@ module WorldModule3 =
                   AudioPlayer = audioPlayer }
             let simulants = UMap.singleton HashIdentity.Structural config (Game :> Simulant) None
             let worldExtension =
-                { ContextImNui = Address.empty
-                  DeclaredImNui = Address.empty
-                  SimulantsImNui = SUMap.makeEmpty HashIdentity.Structural config
-                  SubscriptionsImNui = SUMap.makeEmpty HashIdentity.Structural config
+                { ContextImSim = Address.empty
+                  DeclaredImSim = Address.empty
+                  SimulantsImSim = SUMap.makeEmpty HashIdentity.Structural config
+                  SubscriptionsImSim = SUMap.makeEmpty HashIdentity.Structural config
                   DestructionListRev = []
                   GeometryViewport = geometryViewport
                   RasterViewport = rasterViewport
@@ -484,7 +484,7 @@ module WorldModule3 =
         /// Run the game engine, initializing dependencies as indicated by WorldConfig, and returning exit code upon
         /// termination.
         static member runPlus runWhile preProcess perProcess postProcess imGuiProcess imGuiPostProcess worldConfig windowSize geometryViewport rasterViewport outerViewport plugin =
-            match SdlDeps.tryMake worldConfig.SdlConfig windowSize with
+            match SdlDeps.tryMake worldConfig.SdlConfig worldConfig.Accompanied windowSize with
             | Right sdlDeps ->
                 use sdlDeps = sdlDeps // bind explicitly to dispose automatically
                 match World.tryMake sdlDeps worldConfig geometryViewport rasterViewport outerViewport plugin with

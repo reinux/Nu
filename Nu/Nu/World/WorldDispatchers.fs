@@ -193,7 +193,7 @@ type Effect2dDispatcher () =
         [typeof<EffectFacet>]
 
     static member Properties =
-        [define Entity.EffectDescriptor (scvalue<Effects.EffectDescriptor> "[[EffectName Effect] [LifeTimeOpt None] [Definitions []] [Content [Contents [Shift 0] [[StaticSprite [Resource Default Image] [] Nil]]]]]")]
+        [define Entity.EffectDescriptor (scvalue "[[EffectName Effect] [LifeTimeOpt None] [Definitions []] [Content [Contents [Shift 0] [[StaticSprite [Resource Default Image] [] Nil]]]]]")]
 
 /// Gives an entity the base behavior of a rigid 2d block using static physics.
 type Block2dDispatcher () =
@@ -370,11 +370,11 @@ type SpineSkeletonDispatcher () =
 type SkyBoxDispatcher () =
     inherit Entity3dDispatcher (false, false, false)
 
-    override this.PresenceOverride =
-        ValueSome Omnipresent
-
     static member Facets =
         [typeof<SkyBoxFacet>]
+
+    override this.PresenceOverride =
+        ValueSome Omnipresent
 
 [<AutoOpen>]
 module Lighting3dConfigDispatcherExtensions =
@@ -387,10 +387,8 @@ type Lighting3dConfigDispatcher () =
     inherit Entity3dDispatcher (false, false, false)
     
     static member Properties =
-        [define Entity.Lighting3dConfig Lighting3dConfig.defaultConfig]
-
-    override this.PresenceOverride =
-        ValueSome Omnipresent
+        [define Entity.Presence Omnipresent
+         define Entity.Lighting3dConfig Lighting3dConfig.defaultConfig]
 
     override this.Render (_, entity, world) =
         let config = entity.GetLighting3dConfig world
@@ -402,9 +400,6 @@ type LightProbe3dDispatcher () =
 
     static member Facets =
         [typeof<LightProbe3dFacet>]
-
-    override this.PresenceOverride =
-        ValueSome Omnipresent
 
     override this.GetAttributesInferred (_, _) =
         AttributesInferred.important (v3Dup 0.25f) v3Zero
@@ -629,9 +624,7 @@ type Effect3dDispatcher () =
         [typeof<EffectFacet>]
 
     static member Properties =
-        [define Entity.EffectDescriptor
-            (scvalue<Effects.EffectDescriptor>
-                "[[EffectName Effect] [LifeTimeOpt None] [Definitions []] [Content [Contents [Shift 0] [[Billboard [Resource Default MaterialAlbedo] [Resource Default MaterialRoughness] [Resource Default MaterialMetallic] [Resource Default MaterialAmbientOcclusion] [Resource Default MaterialEmission] [Resource Default MaterialNormal] [Resource Default MaterialHeightMap] False [] Nil]]]]]")]
+        [define Entity.EffectDescriptor (scvalue "[[EffectName Effect] [LifeTimeOpt None] [Definitions []] [Content [Contents [Shift 0] [[Billboard [Resource Default MaterialAlbedo] [Resource Default MaterialRoughness] [Resource Default MaterialMetallic] [Resource Default MaterialAmbientOcclusion] [Resource Default MaterialEmission] [Resource Default MaterialNormal] [Resource Default MaterialHeightMap] False [] Nil]]]]]")]
 
 /// Gives an entity the base behavior of a rigid 3d block using static physics.
 type Block3dDispatcher () =
@@ -741,9 +734,6 @@ type TerrainDispatcher () =
     static member Facets =
         [typeof<TerrainFacet>]
 
-    override this.PresenceOverride =
-        ValueSome Omnipresent
-
 [<AutoOpen>]
 module Nav3dConfigDispatcherExtensions =
     type Entity with
@@ -770,7 +760,7 @@ type Nav3dConfigDispatcher () =
         | ViewportOverlay _ ->
             let nav3d = World.getScreenNav3d entity.Screen world
             match nav3d.Nav3dMeshOpt with
-            | Some (nbrData, _, _) ->
+            | Some (_, nbrData, _, _) ->
 
                 // edge color compute lambda
                 let computeEdgeColor (edge : Segment3) =

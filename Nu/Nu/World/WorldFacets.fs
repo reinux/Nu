@@ -1389,10 +1389,6 @@ module RigidBodyFacetExtensions =
         member this.Awake = lensReadOnly (nameof this.Awake) this this.GetAwake
         member this.GetBodyId world : BodyId = this.Get (nameof this.BodyId) world
         member this.BodyId = lensReadOnly (nameof this.BodyId) this this.GetBodyId
-        member this.BodyPenetrationEvent = Events.BodyPenetrationEvent --> this
-        member this.BodySeparationExplicitEvent = Events.BodySeparationExplicitEvent --> this
-        member this.BodySeparationImplicitEvent = Events.BodySeparationImplicitEvent --> Game
-        member this.BodyTransformEvent = Events.BodyTransformEvent --> this
 
 /// Augments an entity with a physics-driven rigid body.
 type RigidBodyFacet () =
@@ -2257,15 +2253,13 @@ type SkyBoxFacet () =
     inherit Facet (false, false, false)
 
     static member Properties =
-        [define Entity.Static true
+        [define Entity.Presence Omnipresent
+         define Entity.Static true
          define Entity.AmbientColor Color.White
          define Entity.AmbientBrightness 0.5f
          define Entity.Color Color.White
          define Entity.Brightness 1.0f
          define Entity.CubeMap Assets.Default.SkyBoxMap]
-
-    override this.PresenceOverride =
-        ValueSome Omnipresent
 
     override this.Render (renderPass, entity, world) =
         World.enqueueRenderMessage3d
@@ -2325,15 +2319,13 @@ type LightProbe3dFacet () =
 
     static member Properties =
         [define Entity.Size (v3Dup 0.25f)
+         define Entity.Presence Omnipresent
          define Entity.LightProbe true
          define Entity.Static true
          define Entity.AmbientColor Color.White
          define Entity.AmbientBrightness 0.5f
          define Entity.ProbeBounds (box3 (v3Dup Constants.Render.LightProbeSizeDefault * -0.5f) (v3Dup Constants.Render.LightProbeSizeDefault))
          nonPersistent Entity.ProbeStale false]
-
-    override this.PresenceOverride =
-        ValueSome Omnipresent
 
     override this.Register (entity, world) =
         let world = World.sense handleProbeVisibleChange entity.Group.Visible.ChangeEvent entity (nameof LightProbe3dFacet) world
@@ -2389,6 +2381,9 @@ module Light3dFacetExtensions =
         member this.GetAttenuationQuadratic world : single = this.Get (nameof this.AttenuationQuadratic) world
         member this.SetAttenuationQuadratic (value : single) world = this.Set (nameof this.AttenuationQuadratic) value world
         member this.AttenuationQuadratic = lens (nameof this.AttenuationQuadratic) this this.GetAttenuationQuadratic this.SetAttenuationQuadratic
+        member this.GetAutoAttenuate world : bool = this.Get (nameof this.AutoAttenuate) world
+        member this.SetAutoAttenuate (value : bool) world = this.Set (nameof this.AutoAttenuate) value world
+        member this.AutoAttenuate = lens (nameof this.AutoAttenuate) this this.GetAutoAttenuate this.SetAutoAttenuate
         member this.GetLightCutoff world : single = this.Get (nameof this.LightCutoff) world
         member this.SetLightCutoff (value : single) world = this.Set (nameof this.LightCutoff) value world
         member this.LightCutoff = lens (nameof this.LightCutoff) this this.GetLightCutoff this.SetLightCutoff
@@ -2406,18 +2401,38 @@ module Light3dFacetExtensions =
 type Light3dFacet () =
     inherit Facet (false, false, true)
 
+    static let handleLightingChange evt world =
+        let entity = evt.Subscriber : Entity
+        let brightness = entity.GetBrightness world
+        let lightCutoff = entity.GetLightCutoff world
+        let world =
+            if entity.GetAutoAttenuate world then
+                let world = entity.SetAttenuationLinear (1.0f / (brightness * lightCutoff)) world
+                let world = entity.SetAttenuationQuadratic (1.0f / (brightness * lightCutoff * lightCutoff)) world
+                world
+            else world
+        let size = v3Dup (lightCutoff * 2.0f)
+        let world = entity.SetSize size world
+        (Cascade, world)
+
     static member Properties =
-        [define Entity.Size (v3Dup 0.25f)
+        [define Entity.Size (v3Dup (Constants.Render.LightCutoffDefault * 2.0f))
          define Entity.Static true
          define Entity.Light true
          define Entity.Color Color.White
          define Entity.Brightness Constants.Render.BrightnessDefault
          define Entity.AttenuationLinear Constants.Render.AttenuationLinearDefault
          define Entity.AttenuationQuadratic Constants.Render.AttenuationQuadraticDefault
+         define Entity.AutoAttenuate true
          define Entity.LightCutoff Constants.Render.LightCutoffDefault
          define Entity.LightType PointLight
          define Entity.DesireShadows false
          define Entity.DesireFog false]
+
+    override this.Register (entity, world) =
+        let world = World.sense handleLightingChange entity.Brightness.ChangeEvent entity (nameof Light3dFacet) world
+        let world = World.sense handleLightingChange entity.LightCutoff.ChangeEvent entity (nameof Light3dFacet) world
+        world
 
     override this.Render (renderPass, entity, world) =
         let lightId = entity.GetId world
@@ -2452,11 +2467,15 @@ type Light3dFacet () =
             world
 
     override this.RayCast (ray, entity, world) =
-        let intersectionOpt = ray.Intersects (entity.GetBounds world)
+        let boundsSize = v3Dup 0.25f
+        let bounds = box3 (entity.GetPosition world - boundsSize * 0.5f) boundsSize
+        let intersectionOpt = ray.Intersects bounds
         [|Intersection.ofNullable intersectionOpt|]
 
-    override this.GetAttributesInferred (_, _) =
-        AttributesInferred.important (v3Dup 0.25f) v3Zero
+    override this.GetAttributesInferred (entity, world) =
+        let lightCutoff = entity.GetLightCutoff world
+        let size = v3Dup (lightCutoff * 2.0f)
+        AttributesInferred.important size v3Zero
 
     override this.Edit (op, entity, world) =
         match op with
@@ -2836,7 +2855,7 @@ type BasicStaticBillboardEmitterFacet () =
                               HeightOpt = match emitterProperties.HeightOpt with ValueSome height -> ValueSome height | ValueNone -> descriptor.MaterialProperties.HeightOpt
                               IgnoreLightMapsOpt = match emitterProperties.IgnoreLightMapsOpt with ValueSome ignoreLightMaps -> ValueSome ignoreLightMaps | ValueNone -> descriptor.MaterialProperties.IgnoreLightMapsOpt
                               OpaqueDistanceOpt = ValueNone
-                              ThicknessOffsetOpt = match emitterProperties.ThicknessOffsetOpt with ValueSome thicknessOffset -> ValueSome thicknessOffset | ValueNone -> descriptor.MaterialProperties.ThicknessOffsetOpt
+                              FinenessOffsetOpt = match emitterProperties.FinenessOffsetOpt with ValueSome finenessOffset -> ValueSome finenessOffset | ValueNone -> descriptor.MaterialProperties.FinenessOffsetOpt
                               ScatterTypeOpt = match emitterProperties.ScatterTypeOpt with ValueSome scatterType -> ValueSome scatterType | ValueNone -> descriptor.MaterialProperties.ScatterTypeOpt }
                         let emitterMaterial = entity.GetEmitterMaterial world
                         let material =
@@ -2848,7 +2867,7 @@ type BasicStaticBillboardEmitterFacet () =
                               NormalImageOpt = match emitterMaterial.NormalImageOpt with ValueSome normalImage -> ValueSome normalImage | ValueNone -> descriptor.Material.NormalImageOpt
                               HeightImageOpt = match emitterMaterial.HeightImageOpt with ValueSome heightImage -> ValueSome heightImage | ValueNone -> descriptor.Material.HeightImageOpt
                               SubdermalImageOpt = match emitterMaterial.SubdermalImageOpt with ValueSome subdermalImage -> ValueSome subdermalImage | ValueNone -> descriptor.Material.SubdermalImageOpt
-                              ThicknessImageOpt = match emitterMaterial.ThicknessImageOpt with ValueSome thicknessImage -> ValueSome thicknessImage | ValueNone -> descriptor.Material.ThicknessImageOpt
+                              FinenessImageOpt = match emitterMaterial.FinenessImageOpt with ValueSome finenessImage -> ValueSome finenessImage | ValueNone -> descriptor.Material.FinenessImageOpt
                               ScatterImageOpt = match emitterMaterial.ScatterImageOpt with ValueSome scatterImage -> ValueSome scatterImage | ValueNone -> descriptor.Material.ScatterImageOpt
                               TwoSidedOpt = match emitterMaterial.TwoSidedOpt with ValueSome twoSided -> ValueSome twoSided | ValueNone -> descriptor.Material.TwoSidedOpt }
                         Some
@@ -3089,7 +3108,7 @@ type AnimatedModelFacet () =
 
     static member Properties =
         [define Entity.InsetOpt None
-         define Entity.MaterialProperties { MaterialProperties.empty with ScatterTypeOpt = ValueSome SkinScatter }
+         define Entity.MaterialProperties MaterialProperties.empty
          define Entity.Animations [|{ StartTime = GameTime.zero; LifeTimeOpt = None; Name = ""; Playback = Loop; Rate = 1.0f; Weight = 1.0f; BoneFilterOpt = None }|]
          define Entity.AnimatedModel Assets.Default.AnimatedModel
          define Entity.SubsortOffsets Map.empty
@@ -3260,6 +3279,7 @@ type TerrainFacet () =
 
     static member Properties =
         [define Entity.Size (v3 512.0f 128.0f 512.0f)
+         define Entity.Presence Omnipresent
          define Entity.Static true
          define Entity.AlwaysRender true
          define Entity.BodyEnabled true
@@ -3294,9 +3314,6 @@ type TerrainFacet () =
          nonPersistent Entity.AwakeTimeStamp 0L
          computed Entity.Awake (fun (entity : Entity) world -> entity.GetAwakeTimeStamp world = world.UpdateTime) None
          computed Entity.BodyId (fun (entity : Entity) _ -> { BodySource = entity; BodyIndex = 0 }) None]
-
-    override this.PresenceOverride =
-        ValueSome Omnipresent
 
     override this.Register (entity, world) =
         let world = World.sense (fun _ world -> (Cascade, entity.PropagatePhysics world)) (entity.ChangeEvent (nameof entity.BodyEnabled)) entity (nameof TerrainFacet) world

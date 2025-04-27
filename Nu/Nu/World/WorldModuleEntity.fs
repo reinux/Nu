@@ -22,30 +22,6 @@ module WorldModuleEntity =
     /// Entity change (publishing) count key.
     let internal EntityChangeCountsKey = string Gen.id
 
-    /// Names of properties that will trigger body property changes.
-    let private BodyPropertyAffectingPropertyNames =
-        FrozenSet.ToFrozenSet
-            (["Scale"
-              "Offset"
-              "Size"
-              "BodyEnabled"
-              "BodyType"
-              "SleepingAllowed"
-              "Friction"
-              "Restitution"
-              "LinearDamping"
-              "AngularDamping"
-              "AngularFactor"
-              "Substance"
-              "GravityOverride"
-              "CharacterProperties"
-              "CollisionDetection"
-              "CollisionCategories"
-              "CollisionMask"
-              "BodyShape"
-              "Sensor"],
-            StringComparer.Ordinal)
-
     type World with
 
         static member private entityStateFinder (entity : Entity) world =
@@ -132,7 +108,7 @@ module WorldModuleEntity =
                 let world =
                     // OPTIMIZATION: this works together with RigidBodyFacet to reduce the bookkeeping footprint of its
                     // subscriptions. This does have some run-time performance cost associated with it, however.
-                    if BodyPropertyAffectingPropertyNames.Contains propertyName then
+                    if Constants.Physics.BodyPropertyAffectingPropertyNames.Contains propertyName then
                         let changeEventAddress = rtoa<ChangeData> (Array.append [|Constants.Lens.ChangeName; "BodyPropertiesAffecting"; Constants.Lens.EventName|] entityNames)
                         let eventTrace = EventTrace.debug "World" "publishEntityChange" "BodyPropertiesAffecting" EventTrace.empty
                         World.publishPlus changeData changeEventAddress eventTrace entity false false world
@@ -273,7 +249,7 @@ module WorldModuleEntity =
                     else
                         let properties = UMap.makeFromSeq StringComparer.Ordinal Functional (Xtension.toSeq entityState.Xtension)
                         let xtension = Xtension.make false properties
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.Xtension <- xtension
                         entityState.Imperative <- false
                         struct (entityState, World.setEntityState entityState entity world)
@@ -419,7 +395,7 @@ module WorldModuleEntity =
                         entityState.PublishChangeEvents <- value
                         struct (entityState, world)
                     else
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.PublishChangeEvents <- value
                         struct (entityState, World.setEntityState entityState entity world)
                 let world = World.publishEntityChange (nameof entityState.PublishChangeEvents) previous value entityState.PublishChangeEvents entity world
@@ -435,7 +411,7 @@ module WorldModuleEntity =
                         entityState.PublishUpdates <- value
                         struct (entityState, world)
                     else
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.PublishUpdates <- value
                         struct (entityState, World.setEntityState entityState entity world)
                 let world = World.publishEntityChange (nameof entityState.PublishUpdates) previous value entityState.PublishChangeEvents entity world
@@ -450,7 +426,7 @@ module WorldModuleEntity =
                     entityState.Protected <- value
                     struct (true, world)
                 else
-                    let entityState = EntityState.diverge entityState
+                    let entityState = EntityState.copy entityState
                     entityState.Protected <- value
                     struct (true, World.setEntityState entityState entity world)
             else struct (false, world)
@@ -464,7 +440,7 @@ module WorldModuleEntity =
                         entityState.Persistent <- value
                         struct (entityState, world)
                     else
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.Persistent <- value
                         struct (entityState, World.setEntityState entityState entity world)
                 let world = World.publishEntityChange (nameof entityState.Persistent) previous value entityState.PublishChangeEvents entity world
@@ -480,7 +456,7 @@ module WorldModuleEntity =
                         entityState.Mounted <- value
                         struct (entityState, world)
                     else
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.Mounted <- value
                         struct (entityState, World.setEntityState entityState entity world)
                 let world = World.publishEntityChange (nameof entityState.Mounted) previous value entityState.PublishChangeEvents entity world
@@ -496,7 +472,7 @@ module WorldModuleEntity =
                         entityState.PropagatedDescriptorOpt <- value
                         struct (entityState, world)
                     else
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.PropagatedDescriptorOpt <- value
                         struct (entityState, World.setEntityState entityState entity world)
                 let world = World.publishEntityChange (nameof entityState.PropagatedDescriptorOpt) previous value entityState.PublishChangeEvents entity world
@@ -695,7 +671,7 @@ module WorldModuleEntity =
                         entityState.PresenceOverride <- value
                         world
                     else
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.PresenceOverride <- value
                         World.setEntityState entityState entity world
                 World.updateEntityInEntityTree visibleInViewOld staticInPlayOld lightProbeOld lightOld presenceOld presenceInPlayOld boundsOld entity world
@@ -817,7 +793,7 @@ module WorldModuleEntity =
                         entityState.PropagationSourceOpt <- value
                         struct (entityState, world)
                     else
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.PropagationSourceOpt <- value
                         struct (entityState, World.setEntityState entityState entity world)
                 let world = World.updateEntityInPropagationTargets previous value entity world
@@ -841,7 +817,7 @@ module WorldModuleEntity =
                         entityState.Absolute <- value
                         struct (entityState, world)
                     else
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.Absolute <- value
                         struct (entityState, World.setEntityState entityState entity world)
                 let world = World.updateEntityInEntityTree visibleInViewOld staticInPlayOld lightProbeOld lightOld presenceOld presenceInPlayOld boundsOld entity world
@@ -866,7 +842,7 @@ module WorldModuleEntity =
                         entityState.Static <- value
                         struct (entityState, world)
                     else
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.Static <- value
                         struct (entityState, World.setEntityState entityState entity world)
                 let world = World.updateEntityInEntityTree visibleInViewOld staticInPlayOld lightProbeOld lightOld presenceOld presenceInPlayOld boundsOld entity world
@@ -890,7 +866,7 @@ module WorldModuleEntity =
                         entityState.AlwaysUpdate <- value
                         struct (entityState, world)
                     else
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.AlwaysUpdate <- value
                         struct (entityState, World.setEntityState entityState entity world)
                 let world = World.updateEntityInEntityTree visibleInViewOld staticInPlayOld lightProbeOld lightOld presenceOld presenceInPlayOld boundsOld entity world
@@ -914,7 +890,7 @@ module WorldModuleEntity =
                         entityState.AlwaysRender <- value
                         struct (entityState, world)
                     else
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.AlwaysRender <- value
                         struct (entityState, World.setEntityState entityState entity world)
                 let world = World.updateEntityInEntityTree visibleInViewOld staticInPlayOld lightProbeOld lightOld presenceOld presenceInPlayOld boundsOld entity world
@@ -938,7 +914,7 @@ module WorldModuleEntity =
                         entityState.Presence <- value
                         struct (entityState, world)
                     else
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.Presence <- value
                         struct (entityState, World.setEntityState entityState entity world)
                 let world = World.updateEntityInEntityTree visibleInViewOld staticInPlayOld lightProbeOld lightOld presenceOld presenceInPlayOld boundsOld entity world
@@ -1463,7 +1439,7 @@ module WorldModuleEntity =
                         entityState.Enabled <- value
                         struct (entityState, world)
                     else
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.Enabled <- value
                         let world = World.setEntityState entityState entity world
                         struct (entityState, world)
@@ -1481,7 +1457,7 @@ module WorldModuleEntity =
                         entityState.EnabledLocal <- value
                         struct (entityState, world)
                     else
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.EnabledLocal <- value
                         let world = World.setEntityState entityState entity world
                         struct (entityState, world)
@@ -1522,7 +1498,7 @@ module WorldModuleEntity =
                         entityState.Visible <- value
                         struct (entityState, world)
                     else
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.Visible <- value
                         let world = World.setEntityState entityState entity world
                         struct (entityState, world)
@@ -1541,7 +1517,7 @@ module WorldModuleEntity =
                         entityState.VisibleLocal <- value
                         struct (entityState, world)
                     else
-                        let entityState = EntityState.diverge entityState
+                        let entityState = EntityState.copy entityState
                         entityState.VisibleLocal <- value
                         let world = World.setEntityState entityState entity world
                         struct (entityState, world)
@@ -1564,7 +1540,7 @@ module WorldModuleEntity =
                     entityState.CastShadow <- value
                     struct (true, world)
                 else
-                    let entityState = EntityState.diverge entityState
+                    let entityState = EntityState.copy entityState
                     entityState.CastShadow <- value
                     struct (true, World.setEntityState entityState entity world)
             else struct (false, world)
@@ -1577,7 +1553,7 @@ module WorldModuleEntity =
                     entityState.Pickable <- value
                     struct (true, world)
                 else
-                    let entityState = EntityState.diverge entityState
+                    let entityState = EntityState.copy entityState
                     entityState.Pickable <- value
                     struct (true, World.setEntityState entityState entity world)
             else struct (false, world)
@@ -1718,11 +1694,11 @@ module WorldModuleEntity =
                         struct (entityState, world)
                     | None -> struct (entityState, world)
                 let propertyNames = World.getEntityPropertyDefinitionNamesToDetach entityState facet
-                let entityState = Reflection.detachPropertiesViaNames EntityState.diverge propertyNames entityState
+                let entityState = Reflection.detachPropertiesViaNames EntityState.copy propertyNames entityState
                 let entityState =
                     let facetNames = Set.remove facetName entityState.FacetNames
                     let facets = Array.remove ((=) facet) entityState.Facets
-                    let entityState = if entityState.Imperative then entityState else EntityState.diverge entityState
+                    let entityState = if entityState.Imperative then entityState else EntityState.copy entityState
                     entityState.FacetNames <- facetNames
                     entityState.Facets <- facets
                     entityState
@@ -1749,11 +1725,11 @@ module WorldModuleEntity =
                     let entityState =
                         let facetNames = Set.add facetName entityState.FacetNames
                         let facets = Array.add facet entityState.Facets
-                        let entityState = if entityState.Imperative then entityState else EntityState.diverge entityState
+                        let entityState = if entityState.Imperative then entityState else EntityState.copy entityState
                         entityState.FacetNames <- facetNames
                         entityState.Facets <- facets
                         entityState
-                    let entityState = Reflection.attachProperties EntityState.diverge facet entityState world
+                    let entityState = Reflection.attachProperties EntityState.copy facet entityState world
                     match entityOpt with
                     | Some entity ->
                         let world = World.setEntityState entityState entity world
@@ -1806,7 +1782,7 @@ module WorldModuleEntity =
         static member internal attachIntrinsicFacetsViaNames entityState world =
             let entityDispatchers = World.getEntityDispatchers world
             let facets = World.getFacets world
-            Reflection.attachIntrinsicFacets EntityState.diverge entityDispatchers facets entityState.Dispatcher entityState world
+            Reflection.attachIntrinsicFacets EntityState.copy entityDispatchers facets entityState.Dispatcher entityState world
 
         static member internal applyEntityOverlay overlayerOld overlayer world entity =
             let entityState = World.getEntityState entity world
@@ -1820,11 +1796,11 @@ module WorldModuleEntity =
                 let presenceInPlayOld = entityState.PresenceInPlay
                 let boundsOld = entityState.Bounds
                 let facetNamesOld = entityState.FacetNames
-                let entityState = Overlayer.applyOverlayToFacetNames EntityState.diverge overlayName overlayName entityState overlayerOld overlayer
+                let entityState = Overlayer.applyOverlayToFacetNames EntityState.copy overlayName overlayName entityState overlayerOld overlayer
                 match World.trySynchronizeFacetsToNames facetNamesOld entityState (Some entity) world with
                 | Right (entityState, world) ->
                     let facetNames = World.getEntityFacetNamesReflectively entityState
-                    let entityState = Overlayer.applyOverlay6 EntityState.diverge overlayName overlayName facetNames entityState overlayerOld overlayer
+                    let entityState = Overlayer.applyOverlay6 EntityState.copy overlayName overlayName facetNames entityState overlayerOld overlayer
                     let world = World.setEntityState entityState entity world
                     World.updateEntityInEntityTree visibleInViewOld staticInPlayOld lightProbeOld lightOld presenceOld presenceInPlayOld boundsOld entity world
                 | Left error -> Log.info ("There was an issue in applying a reloaded overlay: " + error); world
@@ -2177,7 +2153,7 @@ module WorldModuleEntity =
 
         static member internal divergeEntity entity world =
             let entityState = World.getEntityState entity world
-            let entityState = EntityState.diverge entityState
+            let entityState = EntityState.copy entityState
             World.setEntityState entityState entity world
 
         static member internal registerEntity entity world =
@@ -2254,12 +2230,12 @@ module WorldModuleEntity =
                         let quadtree = World.getQuadtree world
                         let entityState = World.getEntityState entity world
                         let element = Quadelement.make entityState.VisibleInView entityState.StaticInPlay entityState.Presence entityState.PresenceInPlay entityState.Bounds.Box2 entity
-                        Quadtree.addElement entityState.PresenceInPlay entityState.Bounds.Box2 element quadtree
+                        Quadtree.addElement entityState.Presence entityState.PresenceInPlay entityState.Bounds.Box2 element quadtree
                     else
                         let octree = World.getOctree world
                         let entityState = World.getEntityState entity world
                         let element = Octelement.make entityState.VisibleInView entityState.StaticInPlay entityState.LightProbe entityState.Light entityState.Presence entityState.PresenceInPlay entityState.Bounds entity
-                        Octree.addElement entityState.PresenceInPlay entityState.Bounds element octree
+                        Octree.addElement entityState.Presence entityState.PresenceInPlay entityState.Bounds element octree
 
                 // register entity
                 World.registerEntity entity world
@@ -2290,8 +2266,8 @@ module WorldModuleEntity =
                 // destroy any scheduled tasklets
                 let world = World.removeTasklets entity world
 
-                // remove from simulant imnui tracking
-                let world = World.removeSimulantImNui entity world
+                // remove from simulant imsim tracking
+                let world = World.removeSimulantImSim entity world
 
                 // mutate respective entity tree if entity is selected
                 if WorldModule.getSelected entity world then
@@ -2299,12 +2275,12 @@ module WorldModuleEntity =
                         let quadtree = World.getQuadtree world
                         let entityState = World.getEntityState entity world
                         let element = Quadelement.make entityState.VisibleInView entityState.StaticInPlay entityState.Presence entityState.PresenceInPlay entityState.Bounds.Box2 entity
-                        Quadtree.removeElement entityState.PresenceInPlay entityState.Bounds.Box2 element quadtree
+                        Quadtree.removeElement entityState.Presence entityState.PresenceInPlay entityState.Bounds.Box2 element quadtree
                     else
                         let octree = World.getOctree world
                         let entityState = World.getEntityState entity world
                         let element = Octelement.make entityState.VisibleInView entityState.StaticInPlay entityState.LightProbe entityState.Light entityState.Presence entityState.PresenceInPlay entityState.Bounds entity
-                        Octree.removeElement entityState.PresenceInPlay entityState.Bounds element octree
+                        Octree.removeElement entityState.Presence entityState.PresenceInPlay entityState.Bounds element octree
 
                 // remove cached entity event addresses
                 EventGraph.cleanEventAddressCache entity.EntityAddress
@@ -2700,7 +2676,7 @@ module WorldModuleEntity =
                 let overlayer = World.getOverlayer world
                 let (entityState, world) =
                     let facetNamesOld = entityState.FacetNames
-                    let entityState = Overlayer.applyOverlayToFacetNames EntityState.diverge overlayerNameOld overlayName entityState overlayer overlayer
+                    let entityState = Overlayer.applyOverlayToFacetNames EntityState.copy overlayerNameOld overlayName entityState overlayer overlayer
                     match World.trySynchronizeFacetsToNames facetNamesOld entityState (Some entity) world with
                     | Right (entityState, world) -> (entityState, world)
                     | Left error -> Log.error error; (entityState, world)
@@ -2765,11 +2741,11 @@ module WorldModuleEntity =
                     if entityState.Is2d then
                         let quadree = World.getQuadtree world
                         let element = Quadelement.make visibleInViewNew staticInPlayNew presenceNew presenceInPlayNew boundsNew.Box2 entity
-                        Quadtree.updateElement presenceInPlayOld boundsOld.Box2 presenceInPlayNew boundsNew.Box2 element quadree
+                        Quadtree.updateElement presenceOld presenceInPlayOld boundsOld.Box2 presenceNew presenceInPlayNew boundsNew.Box2 element quadree
                     else
                         let octree = World.getOctree world
                         let element = Octelement.make visibleInViewNew staticInPlayNew lightProbeNew lightNew presenceNew presenceInPlayNew boundsNew entity
-                        Octree.updateElement presenceInPlayOld boundsOld presenceInPlayNew boundsNew element octree
+                        Octree.updateElement presenceOld presenceInPlayOld boundsOld presenceNew presenceInPlayNew boundsNew element octree
 
                     // fin
                     world

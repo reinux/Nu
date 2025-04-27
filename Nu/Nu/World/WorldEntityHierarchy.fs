@@ -116,7 +116,7 @@ module WorldEntityHierarchy =
                             let renderStyle = OpenGL.PhysicallyBased.PhysicallyBasedSurfaceFns.extractRenderStyle Deferred staticModelMetadata.SceneOpt surface
                             let ignoreLightMaps = OpenGL.PhysicallyBased.PhysicallyBasedSurfaceFns.extractIgnoreLightMaps Constants.Render.IgnoreLightMapsDefault staticModelMetadata.SceneOpt surface
                             let opaqueDistance = OpenGL.PhysicallyBased.PhysicallyBasedSurfaceFns.extractOpaqueDistance Constants.Render.OpaqueDistanceDefault staticModelMetadata.SceneOpt surface
-                            let thicknessOffset = OpenGL.PhysicallyBased.PhysicallyBasedSurfaceFns.extractThicknessOffset Constants.Render.ThicknessOffsetDefault staticModelMetadata.SceneOpt surface
+                            let finenessOffset = OpenGL.PhysicallyBased.PhysicallyBasedSurfaceFns.extractFinenessOffset Constants.Render.FinenessOffsetDefault staticModelMetadata.SceneOpt surface
                             let scatterType = OpenGL.PhysicallyBased.PhysicallyBasedSurfaceFns.extractScatterType Constants.Render.ScatterTypeDefault staticModelMetadata.SceneOpt surface
                             let world = child.SetPositionLocal position world
                             let world = child.SetRotationLocal rotation world
@@ -135,7 +135,7 @@ module WorldEntityHierarchy =
                                   HeightOpt = ValueSome surface.SurfaceMaterialProperties.Height
                                   IgnoreLightMapsOpt = ValueSome ignoreLightMaps
                                   OpaqueDistanceOpt = ValueSome opaqueDistance
-                                  ThicknessOffsetOpt = ValueSome thicknessOffset
+                                  FinenessOffsetOpt = ValueSome finenessOffset
                                   ScatterTypeOpt = ValueSome scatterType }
                             let world = child.SetMaterialProperties properties world
                             let material =
@@ -148,7 +148,7 @@ module WorldEntityHierarchy =
                                       NormalImageOpt = Metadata.tryGetStaticModelNormalImage surface.SurfaceMaterialIndex staticModel
                                       HeightImageOpt = Metadata.tryGetStaticModelHeightImage surface.SurfaceMaterialIndex staticModel
                                       SubdermalImageOpt = Metadata.tryGetStaticModelSubdermalImage surface.SurfaceMaterialIndex staticModel
-                                      ThicknessImageOpt = Metadata.tryGetStaticModelThicknessImage surface.SurfaceMaterialIndex staticModel
+                                      FinenessImageOpt = Metadata.tryGetStaticModelFinenessImage surface.SurfaceMaterialIndex staticModel
                                       ScatterImageOpt = Metadata.tryGetStaticModelScatterImage surface.SurfaceMaterialIndex staticModel
                                       TwoSidedOpt = Metadata.tryGetStaticModelTwoSided surface.SurfaceMaterialIndex staticModel }
                                 else Material.empty
@@ -218,8 +218,8 @@ module WorldEntityHierarchy =
                                 let renderType = match renderStyle with Deferred -> DeferredRenderType | Forward (subsort, sort) -> ForwardRenderType (subsort, sort)
                                 let ignoreLightMaps = OpenGL.PhysicallyBased.PhysicallyBasedSurfaceFns.extractIgnoreLightMaps properties.IgnoreLightMaps metadata.SceneOpt surface
                                 let properties = if ignoreLightMaps <> properties.IgnoreLightMaps then { properties with IgnoreLightMapsOpt = ValueSome ignoreLightMaps } else properties
-                                let thicknessOffset = OpenGL.PhysicallyBased.PhysicallyBasedSurfaceFns.extractThicknessOffset properties.ThicknessOffset metadata.SceneOpt surface
-                                let properties = if thicknessOffset <> properties.ThicknessOffset then { properties with ThicknessOffsetOpt = ValueSome thicknessOffset } else properties
+                                let finenessOffset = OpenGL.PhysicallyBased.PhysicallyBasedSurfaceFns.extractFinenessOffset properties.FinenessOffset metadata.SceneOpt surface
+                                let properties = if finenessOffset <> properties.FinenessOffset then { properties with FinenessOffsetOpt = ValueSome finenessOffset } else properties
                                 let scatterType = OpenGL.PhysicallyBased.PhysicallyBasedSurfaceFns.extractScatterType properties.ScatterType metadata.SceneOpt surface
                                 let properties = if scatterType <> properties.ScatterType then { properties with ScatterTypeOpt = ValueSome scatterType } else properties
                                 let material =
@@ -232,7 +232,7 @@ module WorldEntityHierarchy =
                                           NormalImageOpt = Metadata.tryGetStaticModelNormalImage surface.SurfaceMaterialIndex staticModel
                                           HeightImageOpt = Metadata.tryGetStaticModelHeightImage surface.SurfaceMaterialIndex staticModel
                                           SubdermalImageOpt = Metadata.tryGetStaticModelSubdermalImage surface.SurfaceMaterialIndex staticModel
-                                          ThicknessImageOpt = Metadata.tryGetStaticModelThicknessImage surface.SurfaceMaterialIndex staticModel
+                                          FinenessImageOpt = Metadata.tryGetStaticModelFinenessImage surface.SurfaceMaterialIndex staticModel
                                           ScatterImageOpt = Metadata.tryGetStaticModelScatterImage surface.SurfaceMaterialIndex staticModel
                                           TwoSidedOpt = Metadata.tryGetStaticModelTwoSided surface.SurfaceMaterialIndex staticModel }
                                     else Material.empty
@@ -255,7 +255,6 @@ module WorldEntityHierarchy =
                 if entity.GetBodyFreezableWhenSurfaceFreezable world then
                     world <- entity.SetNavEnabled false world
                     world <- entity.SetBodyEnabled false world
-            world <- parent.SetPresence Omnipresent world
             match boundsOpt with
             | Some bounds ->
                 if bounds.Size.Magnitude >= Constants.Engine.EnvironmentMagnitudeThreshold then
@@ -385,18 +384,88 @@ module Freezer3dFacetModule =
                 let world = World.thawEntityHierarchy (this.GetPresenceConferred world) this world
                 world
 
-        /// Permanently freeze a freezer entity's children by freezing and then destroying them.
+        /// Permanently freeze a freezer entity's descendents by freezing and then destroying them.
         member this.Permafreeze world =
             let world = this.SetFrozen true world
-            let children =
+            let descendents =
                 this.GetDescendants world |>
                 Array.ofSeq |>
                 Array.sortBy (fun descendant -> descendant.Names.Length)
-            Array.fold (fun world (child : Entity) ->
-                if child.GetExists world && child.GetSurfaceFreezable world
-                then World.destroyEntityImmediate child world
+            Array.fold (fun world (descendent : Entity) ->
+                if descendent.GetExists world && descendent.GetSurfaceFreezable world
+                then World.destroyEntityImmediate descendent world
                 else world)
-                world children
+                world descendents
+
+        /// Permanently split a freezer entity's descendents into more spatially-coherent freezers.
+        member this.Permasplit world =
+            let splitParent =
+                match this.Parent with
+                | :? Group as group -> group / (this.Name + "Split")
+                | :? Entity as entity -> entity / (this.Name + "Split")
+                | _ -> failwithumf ()
+            let descendents =
+                this.GetDescendants world |>
+                Array.ofSeq |>
+                Array.sortByDescending (fun descendant -> descendant.Names.Length)
+            if splitParent.GetExists world then
+                Log.error ("Failed to permasplit due to already existing entity '" + scstring splitParent + ".")
+                world
+            elif Array.exists (fun (descendent : Entity) -> descendent.GetProtected world) descendents then
+                Log.error "Failed to permasplit due to protected entity in existing hierarchy."
+                world
+            else
+                let frozen = this.GetFrozen world
+                let presence = this.GetPresence world
+                let presenceConferred = this.GetPresenceConferred world
+                let surfaceMaterialsPopulated = this.GetSurfaceMaterialsPopulated world
+                let world = if not frozen then this.SetFrozen true world else world // ensure we're frozen so we get the total bounds from the entity
+                let offset = -(this.GetBounds world).Min // use offset to bring div ops into positive space
+                let world = this.SetFrozen false world
+                let world = World.createEntity DefaultOverlay (Some splitParent.Surnames) splitParent.Group world |> snd
+                let splitSize = Constants.Engine.OctnodeSize
+                let splits = dictPlus HashIdentity.Structural []
+                let world =
+                    Array.fold (fun world (descendent : Entity) ->
+                        if  descendent.GetExists world &&
+                            descendent.GetSurfaceFreezable world &&
+                            getType (descendent.GetDispatcher world) <> typeof<Entity3dDispatcher> then
+                            let bounds = descendent.GetBounds world
+                            let divs = (bounds.Center + offset) / splitSize
+                            let evens = v3 (divs.X |> int |> single) (divs.Y |> int |> single) (divs.Z |> int |> single)
+                            let splitKey = evens * splitSize - offset
+                            let (split, world) =
+                                match splits.TryGetValue splitKey with
+                                | (true, split : Entity) -> (split, world)
+                                | (false, _) ->
+                                    let dispatcher = this.GetDispatcher world
+                                    let dispatacherName = getTypeName dispatcher
+                                    let (split, world) = World.createEntity6 false dispatacherName DefaultOverlay (Some (Array.append splitParent.Surnames [|scstring splitKey|])) this.Group world
+                                    let world = split.SetMountOpt (Some (Relation.makeParent ())) world
+                                    let world = split.SetStaticModel (AssetTag.makeEmpty ()) world
+                                    let world = split.SetPositionLocal splitKey world
+                                    let world = split.SetPresence presence world
+                                    let world = split.SetPresenceConferred presenceConferred world
+                                    let world = split.SetSurfaceMaterialsPopulated surfaceMaterialsPopulated world
+                                    let world = split.SetPickable false world
+                                    splits.Add (splitKey, split)
+                                    (split, world)
+                            let descendent' =
+                                if descendent.Has<StaticModelSurfaceFacet> world && descendent.Name.StartsWith "Geometry"
+                                then split / descendent.Parent.Name // probably generic geometry imported from another engine's scene, so using a likely more descriptive parent name
+                                else split / descendent.Name
+                            let descendent' =
+                                if descendent'.GetExists world
+                                then split / (descendent'.Name + Gen.name)
+                                else descendent'
+                            let world = World.renameEntityImmediate descendent descendent' world
+                            world
+                        else world)
+                        world descendents
+                let world = Seq.fold (fun world (split : Entity) -> split.SetFrozen frozen world) world splits.Values
+                let world = World.destroyEntityImmediate this world
+                let world = World.renameEntityImmediate splitParent this world
+                world
 
     /// Gives an entity the ability to freeze hierarchies of 3D entities.
     type Freezer3dFacet () =
@@ -418,7 +487,7 @@ module Freezer3dFacetModule =
         override this.Register (entity, world) =
             let world = entity.SetOffset v3Zero world
             let world = World.defer (entity.UpdateFrozenHierarchy) entity world // children not loaded yet, so freeze at end of frame
-            let world = World.monitor handleUpdateFrozenHierarchy (entity.ChangeEvent (nameof entity.Frozen)) entity world
+            let world = World.sense handleUpdateFrozenHierarchy (entity.ChangeEvent (nameof entity.Frozen)) entity (nameof Freezer3dFacet) world
             world
 
         override this.Render (renderPass, entity, world) =
@@ -463,9 +532,17 @@ module Freezer3dFacetModule =
         override this.Edit (op, entity, world) =
             match op with
             | AppendProperties append ->
-                if ImGui.Button "Permafreeze" then
-                    let world = append.EditContext.Snapshot Permafreeze world
-                    entity.Permafreeze world else world
+                let world =
+                    if ImGui.Button "Permafreeze" then
+                        let world = append.EditContext.Snapshot Permafreeze world
+                        entity.Permafreeze world
+                    else world
+                let world =
+                    if ImGui.Button "Permasplit" then
+                        let world = append.EditContext.Snapshot Permasplit world
+                        entity.Permasplit world
+                    else world
+                world
             | _ -> world
 
 [<AutoOpen>]
