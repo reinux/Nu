@@ -1746,9 +1746,8 @@ module WorldModule2 =
                                 | Imposter -> frustumImposter.Intersects shadowFrustum
                                 | Omnipresent -> true
                             if shadowInView then
-                                let directionalSort = if lightType = DirectionalLight then 1 else 0 // directional lights come first to attempt to grab the detailed shadow texture
                                 let distanceSquared = Vector3.DistanceSquared (eyeCenter, light.GetPosition world)
-                                struct (struct (directionalSort, distanceSquared), struct (shadowFrustum, light))|]
+                                struct (distanceSquared, struct (shadowFrustum, light))|]
 
                 // sort shadow pass descriptors
                 let shadowPassDescriptors =
@@ -2017,7 +2016,6 @@ module WorldModule2 =
                                                                 // process imgui frame
                                                                 world.Timers.ImGuiTimer.Restart ()
                                                                 let imGui = World.getImGui world
-                                                                if not firstFrame then imGui.EndFrame ()
                                                                 imGui.BeginFrame (single world.DateDelta.TotalSeconds)
                                                                 let world = World.imGuiProcess world
                                                                 let (world : World) = imGuiProcess world

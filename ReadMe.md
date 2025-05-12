@@ -15,6 +15,7 @@ This repository hosts several projects, including -
 - the 2D puzzle game tutorial, ['Twenty 48'](https://github.com/bryanedds/Nu/tree/master/Projects/Twenty%2048).
 - the 2D action game tutorial, ['Blaze Vector'](https://github.com/bryanedds/Nu/tree/master/Projects/Blaze%20Vector).
 - the 3D third-person game sample, ['Terra Firma'](https://github.com/bryanedds/Nu/tree/master/Projects/Terra%20Firma).
+- the WIP prototype game sample for ['Project 5 (Tentative Title)'](https://github.com/bryanedds/Nu/releases/download/v18.15.0/Project.5.Prototype.Sample.v0.1.0.zip).
 - the commercial game demo for ['Omni Blade'](https://github.com/bryanedds/Nu/tree/omni-blade/Projects/Omni%20Blade), full game available now here - https://store.steampowered.com/app/3089800/Omni_Blade/
 
 Getting Started with Nu
@@ -54,8 +55,11 @@ Directly editing the entire game state in the new editor.
 ![image](https://github.com/user-attachments/assets/a1c3d8a0-79c2-4e9a-b466-5901ea601c7e)
 Spine 2D skeletal animation available now!
 
-![image](https://github.com/user-attachments/assets/b5738208-12e2-47d0-be20-e3fef7b987a2)
+![image](https://github.com/user-attachments/assets/d6de81be-c34a-4cad-bc43-483389360c63)
 Screenshot from our current game in early development.
+
+![image](https://github.com/user-attachments/assets/048e8933-41cc-4a39-b3b6-4ad87b616779)
+Another screenshot from same.
 
 ![image](https://github.com/bryanedds/Nu/assets/1625560/69cd30f1-06fe-450e-a83f-8a7a9fd504d0)
 Algebraic terrain rendering thanks to contributions from **[@deanjl](https://github.com/deanjl)**.

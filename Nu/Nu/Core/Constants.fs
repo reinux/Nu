@@ -11,16 +11,6 @@ open SDL2
 open Prime
 open Nu
 
-module OpenGL =
-
-    let [<Literal>] VersionMajor = 4
-    let [<Literal>] VersionMinor = 1
-    let [<Literal>] Profile = SDL.SDL_GLprofile.SDL_GL_CONTEXT_PROFILE_CORE
-    let [<Uniform>] GlslVersionPragma = "#version " + string VersionMajor + string VersionMinor + "0" // TODO: consider added "core" profile specifier here and in the glsl asset files.
-    let [<Literal>] UncompressedTextureFormat = OpenGL.InternalFormat.Rgba8
-    let [<Literal>] BlockCompressedTextureFormat = OpenGL.InternalFormat.CompressedRgbaS3tcDxt5Ext
-    let [<Uniform>] mutable HlDebug = match ConfigurationManager.AppSettings.["HlDebug"] with null -> false | value -> scvalue value
-
 [<RequireQualifiedAccess>]
 module Assimp =
 
@@ -34,6 +24,23 @@ module Assimp =
     let [<Literal>] ScatterTypePropertyName = RawPropertyPrefix + "ScatterType"
     let [<Literal>] TwoSidedPropertyName = RawPropertyPrefix + "TwoSided"
     let [<Literal>] NavShapePropertyName = RawPropertyPrefix + "NavShape"
+
+// NOTE: no qualification specifier here as module exists as an extension.
+module OpenGL =
+
+    let [<Literal>] VersionMajor = 4
+    let [<Literal>] VersionMinor = 6
+    let [<Literal>] Profile = SDL.SDL_GLprofile.SDL_GL_CONTEXT_PROFILE_CORE
+    let [<Uniform>] GlslVersionPragma = "#version " + string VersionMajor + string VersionMinor + "0" + " core"
+    let [<Literal>] UncompressedTextureFormat = OpenGL.InternalFormat.Rgba8
+    let [<Literal>] BlockCompressedTextureFormat = OpenGL.InternalFormat.CompressedRgbaS3tcDxt5Ext
+    let [<Literal>] TextureImageUnitsRequired = 32
+    let [<Uniform>] mutable HlDebug = match ConfigurationManager.AppSettings.["HlDebug"] with null -> false | value -> scvalue value
+
+[<RequireQualifiedAccess>]
+module ImGui =
+
+    let [<Uniform>] mutable FontSize = match ConfigurationManager.AppSettings.["ImGuiFontSize"] with null -> 13.0f | value -> scvalue value
 
 [<RequireQualifiedAccess>]
 module Engine =
@@ -164,8 +171,8 @@ module Render =
     let [<Uniform>] mutable NearPlaneDistanceInterior = match ConfigurationManager.AppSettings.["NearPlaneDistanceInterior"] with null -> 0.125f | value -> scvalue value
     let [<Uniform>] mutable FarPlaneDistanceInterior = match ConfigurationManager.AppSettings.["FarPlaneDistanceInterior"] with null -> 16.0f | value -> scvalue value
     let [<Uniform>] mutable NearPlaneDistanceExterior = match ConfigurationManager.AppSettings.["NearPlaneDistanceExterior"] with null -> 16.0f | value -> scvalue value
-    let [<Uniform>] mutable FarPlaneDistanceExterior = match ConfigurationManager.AppSettings.["FarPlaneDistanceExterior"] with null -> 256.0f | value -> scvalue value
-    let [<Uniform>] mutable NearPlaneDistanceImposter = match ConfigurationManager.AppSettings.["NearPlaneDistanceImposter"] with null -> 256.0f | value -> scvalue value
+    let [<Uniform>] mutable FarPlaneDistanceExterior = match ConfigurationManager.AppSettings.["FarPlaneDistanceExterior"] with null -> 512.0f | value -> scvalue value
+    let [<Uniform>] mutable NearPlaneDistanceImposter = match ConfigurationManager.AppSettings.["NearPlaneDistanceImposter"] with null -> 512.0f | value -> scvalue value
     let [<Uniform>] mutable FarPlaneDistanceImposter = match ConfigurationManager.AppSettings.["FarPlaneDistanceImposter"] with null -> 4096.0f | value -> scvalue value
     let [<Uniform>] mutable NearPlaneDistanceOmnipresent = NearPlaneDistanceInterior
     let [<Uniform>] mutable FarPlaneDistanceOmnipresent = FarPlaneDistanceImposter
@@ -196,10 +203,9 @@ module Render =
     let [<Literal>] LightMapsMaxForward = 2
     let [<Literal>] LightsMaxDeferred = 64
     let [<Literal>] LightsMaxForward = 8
-    let [<Uniform>] mutable ShadowVirtualResolution = match ConfigurationManager.AppSettings.["ShadowVirtualResolution"] with null -> 128 | value -> scvalue value
+    let [<Uniform>] mutable ShadowVirtualResolution = match ConfigurationManager.AppSettings.["ShadowVirtualResolution"] with null -> 256 | value -> scvalue value
     let [<Literal>] ShadowTexturesMax = 9 // NOTE: remember to update SHADOW_TEXTURES_MAX in shaders when changing this!
     let [<Literal>] ShadowMapsMax = 9 // NOTE: remember to update SHADOW_MAPS_MAX in shaders when changing this!
-    let [<Uniform>] mutable ShadowDetailedResolutionScalar = match ConfigurationManager.AppSettings.["ShadowDetailedResolutionScalar"] with null -> 2 | value -> scvalue value
     let [<Literal>] ShadowFovMax = 2.1f // NOTE: remember to update SHADOW_FOV_MAX in shaders when changing this!
     let [<Literal>] ReflectionMapResolution = 1024
     let [<Literal>] IrradianceMapResolution = 32
@@ -207,6 +213,8 @@ module Render =
     let [<Literal>] EnvironmentFilterMips = 7 // NOTE: changing this requires changing the REFLECTION_LOD_MAX constants in shader code.
     let [<Literal>] LightMappingEnabledDefault = true
     let [<Literal>] LightCutoffMarginDefault = 0.333f
+    let [<Literal>] LightAmbientBoostCutoffDefault = 0.3f
+    let [<Literal>] LightAmbientBoostScalarDefault = 0.5f
     let [<Literal>] LightShadowSamplesDefault = 3
     let [<Literal>] LightShadowBiasDefault = 0.02f
     let [<Literal>] LightShadowSampleScalarDefault = 0.02f
@@ -294,7 +302,7 @@ module Physics =
     let [<Literal>] CollisionWildcard = "*"
     let [<Uniform>] mutable Collision3dBodiesMax = match ConfigurationManager.AppSettings.["Collision3dBodiesMax"] with null -> 65536 | value -> scvalue value
     let [<Uniform>] mutable Collision3dBodyPairsMax = match ConfigurationManager.AppSettings.["Collision3dBodyPairsMax"] with null -> 32768 | value -> scvalue value
-    let [<Uniform>] mutable Collision3dContactConstraintsMax = match ConfigurationManager.AppSettings.["Collision3dContactConstraintsMax"] with null -> 8192 | value -> scvalue value
+    let [<Uniform>] mutable Collision3dContactConstraintsMax = match ConfigurationManager.AppSettings.["Collision3dContactConstraintsMax"] with null -> 16384 | value -> scvalue value
     let [<Uniform>] mutable Collision3dSteps = match ConfigurationManager.AppSettings.["Collision3dSteps"] with null -> 1 | value -> scvalue value
     let [<Uniform>] mutable Collision3dThreads = match ConfigurationManager.AppSettings.["Collision3dThreads"] with null -> max 1 (Environment.ProcessorCount - 2) | value -> scvalue value
     let [<Uniform>] mutable Collision3dBarriersMax = match ConfigurationManager.AppSettings.["Collision3dBarriersMax"] with null -> max 1 (Environment.ProcessorCount - 2) | value -> scvalue value

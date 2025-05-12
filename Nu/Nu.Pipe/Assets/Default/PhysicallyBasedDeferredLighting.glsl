@@ -1,5 +1,5 @@
 #shader vertex
-#version 410
+#version 460 core
 
 layout(location = 0) in vec3 position;
 layout(location = 1) in vec2 texCoords;
@@ -13,7 +13,7 @@ void main()
 }
 
 #shader fragment
-#version 410
+#version 460 core
 
 const float PI = 3.141592654;
 const float PI_OVER_2 = PI / 2.0;
@@ -36,6 +36,8 @@ uniform vec3 eyeCenter;
 uniform mat4 view;
 uniform mat4 projection;
 uniform float lightCutoffMargin;
+uniform float lightAmbientBoostCutoff;
+uniform float lightAmbientBoostScalar;
 uniform int lightShadowSamples;
 uniform float lightShadowBias;
 uniform float lightShadowSampleScalar;
@@ -100,7 +102,7 @@ layout(location = 2) out float depth;
 
 float saturate(float v)
 {
-    return max(0.0f, min(1.0, v));
+    return clamp(v, 0.0f, 1.0);
 }
 
 float linstep(float low, float high, float v)
@@ -199,7 +201,7 @@ float worldToDepthView(float near, float far, mat4 viewProjection, vec4 position
     return b / (ndcZ + a);
 }
 
-float computeShadowScalarPoint(vec4 position, vec3 lightOrigin, samplerCube shadowMap)
+float computeShadowScalarPoint(vec4 position, vec3 lightOrigin, int shadowMapIndex)
 {
     vec3 positionShadow = position.xyz - lightOrigin;
     float shadowZ = length(positionShadow);
@@ -211,15 +213,16 @@ float computeShadowScalarPoint(vec4 position, vec3 lightOrigin, samplerCube shad
             for (int k = 0; k < lightShadowSamples; ++k)
             {
                 vec3 offset = (vec3(i, j, k) - vec3(lightShadowSamples / 2.0)) * (lightShadowSampleScalar / lightShadowSamples);
-                shadowHits += shadowZ - lightShadowBias > texture(shadowMap, positionShadow + offset).x ? 1.0 : 0.0;
+                shadowHits += shadowZ - lightShadowBias > texture(shadowMaps[shadowMapIndex], positionShadow + offset).x ? 1.0 : 0.0;
             }
         }
     }
     return 1.0 - shadowHits / (lightShadowSamples * lightShadowSamples * lightShadowSamples);
 }
 
-float computeShadowScalarSpot(vec4 position, float lightConeOuter, mat4 shadowMatrix, sampler2D shadowTexture)
+float computeShadowScalarSpot(vec4 position, float lightConeOuter, int shadowIndex)
 {
+    mat4 shadowMatrix = shadowMatrices[shadowIndex];
     vec4 positionShadowClip = shadowMatrix * position;
     vec3 shadowTexCoordsProj = positionShadowClip.xyz / positionShadowClip.w;
     if (shadowTexCoordsProj.x > -1.0 && shadowTexCoordsProj.x < 1.0 &&
@@ -229,7 +232,7 @@ float computeShadowScalarSpot(vec4 position, float lightConeOuter, mat4 shadowMa
         vec2 shadowTexCoords = shadowTexCoordsProj.xy * 0.5 + 0.5;
         float shadowZ = shadowTexCoordsProj.z * 0.5 + 0.5;
         float shadowZExp = exp(-lightShadowExponent * shadowZ);
-        float shadowDepthExp = texture(shadowTexture, shadowTexCoords).y;
+        float shadowDepthExp = texture(shadowTextures[shadowIndex], shadowTexCoords).y;
         float shadowScalar = clamp(shadowZExp * shadowDepthExp, 0.0, 1.0);
         shadowScalar = pow(shadowScalar, lightShadowDensity);
         shadowScalar = lightConeOuter > SHADOW_FOV_MAX ? fadeShadowScalar(shadowTexCoords, shadowScalar) : shadowScalar;
@@ -238,8 +241,9 @@ float computeShadowScalarSpot(vec4 position, float lightConeOuter, mat4 shadowMa
     return 1.0;
 }
 
-float computeShadowScalarDirectional(vec4 position, mat4 shadowMatrix, sampler2D shadowTexture)
+float computeShadowScalarDirectional(vec4 position, int shadowIndex)
 {
+    mat4 shadowMatrix = shadowMatrices[shadowIndex];
     vec4 positionShadowClip = shadowMatrix * position;
     vec3 shadowTexCoordsProj = positionShadowClip.xyz / positionShadowClip.w;
     if (shadowTexCoordsProj.x > -1.0 + SHADOW_SEAM_INSET && shadowTexCoordsProj.x < 1.0 - SHADOW_SEAM_INSET &&
@@ -249,7 +253,7 @@ float computeShadowScalarDirectional(vec4 position, mat4 shadowMatrix, sampler2D
         vec2 shadowTexCoords = shadowTexCoordsProj.xy * 0.5 + 0.5;
         float shadowZ = shadowTexCoordsProj.z;
         float shadowZExp = exp(-lightShadowExponent * shadowZ);
-        float shadowDepthExp = texture(shadowTexture, shadowTexCoords).y;
+        float shadowDepthExp = texture(shadowTextures[shadowIndex], shadowTexCoords).y;
         float shadowScalar = clamp(shadowZExp * shadowDepthExp, 0.0, 1.0);
         shadowScalar = pow(shadowScalar, lightShadowDensity);
         return shadowScalar;
@@ -257,7 +261,7 @@ float computeShadowScalarDirectional(vec4 position, mat4 shadowMatrix, sampler2D
     return 1.0;
 }
 
-float geometryTracePoint(vec4 position, int lightIndex, samplerCube shadowMap)
+float geometryTravelPoint(vec4 position, int lightIndex, int shadowMapIndex)
 {
     // compute travel average in world space
     vec3 lightOrigin = lightOrigins[lightIndex];
@@ -271,18 +275,19 @@ float geometryTracePoint(vec4 position, int lightIndex, samplerCube shadowMap)
             for (int k = -1; k <= 1; k += 2)
             {
                 vec3 offset = vec3(i, j, k) * lightShadowSampleScalar;
-                float shadowDepth = texture(shadowMap, positionShadow + offset).x;
+                float shadowDepth = texture(shadowMaps[shadowMapIndex], positionShadow + offset).x;
                 float delta = shadowZ - shadowDepth;
-                travel += delta;
+                travel += max(0.0, delta);
             }
         }
     }
-    return 1.0 - saturate(travel / 8.0);
+    return travel / 8.0;
 }
 
-float geometryTraceSpot(vec4 position, int lightIndex, mat4 shadowMatrix, sampler2D shadowTexture)
+float geometryTravelSpot(vec4 position, int lightIndex, int shadowIndex)
 {
     // attempt to compute travel average in view space
+    mat4 shadowMatrix = shadowMatrices[shadowIndex];
     vec4 positionShadowClip = shadowMatrix * position;
     vec3 shadowTexCoordsProj = positionShadowClip.xyz / positionShadowClip.w; // ndc space
     if (shadowTexCoordsProj.x > -1.0 && shadowTexCoordsProj.x < 1.0 &&
@@ -296,28 +301,29 @@ float geometryTraceSpot(vec4 position, int lightIndex, mat4 shadowMatrix, sample
         // compute light distance travel through surface (not accounting for incidental surface concavity)
         float travel = 0.0;
         vec2 shadowTexCoords = shadowTexCoordsProj.xy * 0.5 + 0.5; // adj-ndc space
-        vec2 shadowTextureSize = textureSize(shadowTexture, 0);
+        vec2 shadowTextureSize = textureSize(shadowTextures[shadowIndex], 0);
         vec2 shadowTexelSize = 1.0 / shadowTextureSize;
         for (int i = -1; i <= 1; ++i)
         {
             for (int j = -1; j <= 1; ++j)
             {
-                float shadowDepthScreen = texture(shadowTexture, shadowTexCoords + vec2(i, j) * shadowTexelSize).x;
+                float shadowDepthScreen = texture(shadowTextures[shadowIndex], shadowTexCoords + vec2(i, j) * shadowTexelSize).x;
                 float shadowDepth = depthScreenToDepthView(shadowNear, shadowFar, shadowDepthScreen);
                 float delta = shadowZ - shadowDepth;
-                travel += delta;
+                travel += max(0.0, delta);
             }
         }
-        return 1.0 - saturate(travel / 9.0);
+        return travel / 9.0;
     }
 
     // tracing out of range, return default
     return 1.0;
 }
 
-float geometryTraceDirectional(vec4 position, int lightIndex, mat4 shadowMatrix, sampler2D shadowTexture)
+float geometryTravelDirectional(vec4 position, int lightIndex, int shadowIndex)
 {
     // attempt to compute travel average in view space
+    mat4 shadowMatrix = shadowMatrices[shadowIndex];
     vec4 positionShadowClip = shadowMatrix * position;
     vec3 shadowTexCoordsProj = positionShadowClip.xyz / positionShadowClip.w; // ndc space
     if (shadowTexCoordsProj.x > -1.0 + SHADOW_SEAM_INSET && shadowTexCoordsProj.x < 1.0 - SHADOW_SEAM_INSET &&
@@ -325,15 +331,14 @@ float geometryTraceDirectional(vec4 position, int lightIndex, mat4 shadowMatrix,
         shadowTexCoordsProj.z > -1.0 + SHADOW_SEAM_INSET && shadowTexCoordsProj.z < 1.0 - SHADOW_SEAM_INSET)
     {
         // compute light distance travel through surface (not accounting for incidental surface concavity)
-        float shadowZ = shadowTexCoordsProj.z;
-        float shadowZExp = exp(-lightShadowExponent * shadowZ);
+        float shadowFar = lightCutoffs[lightIndex];
+        float shadowZScreen = shadowTexCoordsProj.z * 0.5 + 0.5; // linear, screen space
         vec2 shadowTexCoords = shadowTexCoordsProj.xy * 0.5 + 0.5; // adj-ndc space
-        vec2 shadowTextureSize = textureSize(shadowTexture, 0);
+        vec2 shadowTextureSize = textureSize(shadowTextures[shadowIndex], 0);
         vec2 shadowTexelSize = 1.0 / shadowTextureSize;
-        float shadowDepthExp = texture(shadowTexture, shadowTexCoords).y;
-        float shadowScalar = clamp(shadowZExp * shadowDepthExp, 0.0, 1.0);
-        float travel = pow(shadowScalar, lightShadowDensity);
-        return travel;
+        float shadowDepthScreen = texture(shadowTextures[shadowIndex], shadowTexCoords).x; // linear, screen space
+        float delta = shadowZScreen - shadowDepthScreen;
+        return max(0.0, delta * shadowFar);
     }
 
     // tracing out of range, return default
@@ -346,20 +351,20 @@ vec3 computeSubsurfaceScatter(vec4 position, vec3 albedo, vec4 subdermalPlus, ve
     int lightType = lightTypes[lightIndex];
     int shadowIndex = lightShadowIndices[lightIndex];
 
-    // compute geometry trace length, defaulting to 1.0 when no shadow present for this light index
-    float trace = 1.0;
+    // compute geometry travel distance through material, defaulting to 1.0 when no shadow present for this light index
+    float travel = 1.0;
     if (shadowIndex >= 0)
     {
         switch (lightType)
         {
         case 0: // point light
-            trace = geometryTracePoint(position, lightIndex, shadowMaps[shadowIndex - SHADOW_TEXTURES_MAX]);
+            travel = geometryTravelPoint(position, lightIndex, shadowIndex - SHADOW_TEXTURES_MAX);
             break;
         case 1: // spot light
-            trace = geometryTraceSpot(position, lightIndex, shadowMatrices[shadowIndex], shadowTextures[shadowIndex]);
+            travel = geometryTravelSpot(position, lightIndex, shadowIndex);
             break;
         default: // directional light
-            trace = geometryTraceDirectional(position, lightIndex, shadowMatrices[shadowIndex], shadowTextures[shadowIndex]);
+            travel = geometryTravelDirectional(position, lightIndex, shadowIndex);
             break;
         }
     }
@@ -367,21 +372,25 @@ vec3 computeSubsurfaceScatter(vec4 position, vec3 albedo, vec4 subdermalPlus, ve
     // compute scattered color
     vec3 subdermal = subdermalPlus.rgb;
     float fineness = subdermalPlus.a;
+    float finenessSquared = fineness * fineness;
     vec3 scatter = scatterPlus.rgb;
     float scatterType = scatterPlus.a;
-    vec3 radii = fineness * scatter.rgb * trace;
-    if (scatterType == 1.0) // skin formula
+    if (scatterType > 0.09 && scatterType < 0.11) // skin formula
     {
+        const float density = 15.0;
+        vec3 radii = finenessSquared * scatter.rgb * clamp(exp(-travel * density), 0.0, 1.0);
         float nDotLPos = clamp(nDotL, 0.0, 1.0);
         float nDotLNeg = clamp(-nDotL, 0.0, 1.0);
         vec3 scalar =
             0.2 *
-            pow(vec3(1.0 - nDotLPos), 3.0 / (radii + 0.001)) *
-            pow(vec3(1.0 - nDotLNeg), 3.0 / (radii + 0.001));
+            pow(vec3(1.0 - nDotLPos), 0.1 / (radii + 0.001)) *
+            pow(vec3(1.0 - nDotLNeg), 0.1 / (radii + 0.001));
         return subdermal * radii * scalar;
     }
-    else if (scatterType == 2.0) // foliage formula
+    if (scatterType > 0.19 && scatterType < 0.21) // foliage formula
     {
+        const float density = 5.0;
+        vec3 radii = finenessSquared * scatter.rgb * clamp(exp(-travel * density), 0.0, 1.0);
         vec3 scalar =
             0.2 *
             exp(-3.0 * abs(nDotL) / (radii + 0.001));
@@ -424,41 +433,45 @@ vec3 computeFogAccumPoint(vec4 position, int lightIndex)
 
         // march over ray, accumulating fog light value
         vec3 currentPosition = startPosition + step * dithering;
+        float validSteps = 0.0001; // epsilon to avoid dbz
         for (int i = 0; i < ssvfSteps; ++i)
         {
-            // step through ray, accumulating fog light moment
+            // compute depths
             vec3 positionShadow = currentPosition - lightOrigin;
             float shadowZ = length(positionShadow);
             float shadowDepth = texture(shadowMaps[shadowIndex - SHADOW_TEXTURES_MAX], positionShadow).x;
+
+            // compute intensity inside light volume
+            vec3 v = normalize(eyeCenter - currentPosition);
+            vec3 d = lightOrigin - currentPosition;
+            vec3 l = normalize(d);
+            vec3 h = normalize(v + l);
+            float distanceSquared = dot(d, d);
+            float distance = sqrt(distanceSquared);
+            float cutoffScalar = 1.0 - smoothstep(lightCutoff * (1.0 - lightCutoffMargin), lightCutoff, distance);
+            float attenuation = 1.0 / (ATTENUATION_CONSTANT + lightAttenuationLinear * distance + lightAttenuationQuadratic * distanceSquared);
+            float angle = acos(dot(l, -lightDirection));
+            float halfConeInner = lightConeInner * 0.5;
+            float halfConeOuter = lightConeOuter * 0.5;
+            float halfConeDelta = halfConeOuter - halfConeInner;
+            float halfConeBetween = angle - halfConeInner;
+            float halfConeScalar = clamp(1.0 - halfConeBetween / halfConeDelta, 0.0, 1.0);
+            float intensity = attenuation * halfConeScalar * cutoffScalar;
+
+            // step through ray, accumulating fog light moment
             if (shadowZ <= shadowDepth || shadowDepth == 0.0f)
             {
                 // mie scaterring approximated with Henyey-Greenstein phase function
                 float asymmetrySquared = ssvfAsymmetry * ssvfAsymmetry;
                 float fogMoment = (1.0 - asymmetrySquared) / (4.0 * PI * pow(1.0 + asymmetrySquared - 2.0 * ssvfAsymmetry * theta, 1.5));
-
-                // compute intensity inside light volume
-                vec3 v = normalize(eyeCenter - currentPosition);
-                vec3 d = lightOrigin - currentPosition;
-                vec3 l = normalize(d);
-                vec3 h = normalize(v + l);
-                float distanceSquared = dot(d, d);
-                float distance = sqrt(distanceSquared);
-                float cutoffScalar = 1.0 - smoothstep(lightCutoff * (1.0 - lightCutoffMargin), lightCutoff, distance);
-                float attenuation = 1.0 / (ATTENUATION_CONSTANT + lightAttenuationLinear * distance + lightAttenuationQuadratic * distanceSquared);
-                float angle = acos(dot(l, -lightDirection));
-                float halfConeInner = lightConeInner * 0.5;
-                float halfConeOuter = lightConeOuter * 0.5;
-                float halfConeDelta = halfConeOuter - halfConeInner;
-                float halfConeBetween = angle - halfConeInner;
-                float halfConeScalar = clamp(1.0 - halfConeBetween / halfConeDelta, 0.0, 1.0);
-                float intensity = attenuation * halfConeScalar * cutoffScalar;
-
-                // accumulate
                 result += fogMoment * intensity;
             }
+            
+            // step
+            validSteps += intensity > 0.0 ? 1.0 : 0.0;
             currentPosition += step;
         }
-        result = smoothstep(0.0, 1.0, result / ssvfSteps) * lightColors[lightIndex] * lightBrightnesses[lightIndex] * ssvfIntensity;
+        result = smoothstep(0.0, 1.0, result / validSteps) * lightColors[lightIndex] * lightBrightnesses[lightIndex] * ssvfIntensity;
     }
     return result;
 }
@@ -483,8 +496,7 @@ vec3 computeFogAccumSpot(vec4 position, int lightIndex)
 
         // compute ray info
         vec3 startPosition = eyeCenter;
-        vec3 stopPosition = position.xyz;
-        vec3 rayVector = stopPosition - startPosition;
+        vec3 rayVector = position.xyz - startPosition;
         float rayLength = length(rayVector);
         vec3 rayDirection = rayVector / rayLength;
 
@@ -500,44 +512,48 @@ vec3 computeFogAccumSpot(vec4 position, int lightIndex)
 
         // march over ray, accumulating fog light value
         vec3 currentPosition = startPosition + step * dithering;
+        float validSteps = 0.0001; // epsilon to avoid dbz
         for (int i = 0; i < ssvfSteps; ++i)
         {
-            // step through ray, accumulating fog light moment
+            // compute depths
             vec4 positionShadowClip = shadowMatrix * vec4(currentPosition, 1.0);
             vec3 shadowTexCoordsProj = positionShadowClip.xyz / positionShadowClip.w;
             vec2 shadowTexCoords = vec2(shadowTexCoordsProj.x, shadowTexCoordsProj.y) * 0.5 + 0.5;
             bool shadowTexCoordsInRange = shadowTexCoords.x >= 0.0 && shadowTexCoords.x < 1.0 && shadowTexCoords.y >= 0.0 && shadowTexCoords.y < 1.0;
             float shadowZ = shadowTexCoordsProj.z * 0.5 + 0.5;
             float shadowDepth = shadowTexCoordsInRange ? texture(shadowTextures[shadowIndex], shadowTexCoords).x : 1.0;
+
+            // compute intensity inside light volume
+            vec3 v = normalize(eyeCenter - currentPosition);
+            vec3 d = lightOrigin - currentPosition;
+            vec3 l = normalize(d);
+            vec3 h = normalize(v + l);
+            float distanceSquared = dot(d, d);
+            float distance = sqrt(distanceSquared);
+            float cutoffScalar = 1.0 - smoothstep(lightCutoff * (1.0 - lightCutoffMargin), lightCutoff, distance);
+            float attenuation = 1.0 / (ATTENUATION_CONSTANT + lightAttenuationLinear * distance + lightAttenuationQuadratic * distanceSquared);
+            float angle = acos(dot(l, -lightDirection));
+            float halfConeInner = lightConeInner * 0.5;
+            float halfConeOuter = lightConeOuter * 0.5;
+            float halfConeDelta = halfConeOuter - halfConeInner;
+            float halfConeBetween = angle - halfConeInner;
+            float halfConeScalar = clamp(1.0 - halfConeBetween / halfConeDelta, 0.0, 1.0);
+            float intensity = attenuation * halfConeScalar * cutoffScalar;
+
+            // step through ray, accumulating fog light moment
             if (shadowZ <= shadowDepth || shadowDepth == 0.0f)
             {
                 // mie scaterring approximated with Henyey-Greenstein phase function
                 float asymmetrySquared = ssvfAsymmetry * ssvfAsymmetry;
                 float fogMoment = (1.0 - asymmetrySquared) / (4.0 * PI * pow(1.0 + asymmetrySquared - 2.0 * ssvfAsymmetry * theta, 1.5));
-
-                // compute intensity inside light volume
-                vec3 v = normalize(eyeCenter - currentPosition);
-                vec3 d = lightOrigin - currentPosition;
-                vec3 l = normalize(d);
-                vec3 h = normalize(v + l);
-                float distanceSquared = dot(d, d);
-                float distance = sqrt(distanceSquared);
-                float cutoffScalar = 1.0 - smoothstep(lightCutoff * (1.0 - lightCutoffMargin), lightCutoff, distance);
-                float attenuation = 1.0 / (ATTENUATION_CONSTANT + lightAttenuationLinear * distance + lightAttenuationQuadratic * distanceSquared);
-                float angle = acos(dot(l, -lightDirection));
-                float halfConeInner = lightConeInner * 0.5;
-                float halfConeOuter = lightConeOuter * 0.5;
-                float halfConeDelta = halfConeOuter - halfConeInner;
-                float halfConeBetween = angle - halfConeInner;
-                float halfConeScalar = clamp(1.0 - halfConeBetween / halfConeDelta, 0.0, 1.0);
-                float intensity = attenuation * halfConeScalar * cutoffScalar;
-
-                // accumulate
                 result += fogMoment * intensity;
             }
+
+            // step
+            validSteps += intensity > 0.0 ? 1.0 : 0.0;
             currentPosition += step;
         }
-        result = smoothstep(0.0, 1.0, result / ssvfSteps) * lightColors[lightIndex] * lightBrightnesses[lightIndex] * ssvfIntensity;
+        result = smoothstep(0.0, 1.0, result / validSteps) * lightColors[lightIndex] * lightBrightnesses[lightIndex] * ssvfIntensity;
     }
     return result;
 }
@@ -557,8 +573,7 @@ vec3 computeFogAccumDirectional(vec4 position, int lightIndex)
 
         // compute ray info
         vec3 startPosition = eyeCenter;
-        vec3 stopPosition = position.xyz;
-        vec3 rayVector = stopPosition - startPosition;
+        vec3 rayVector = position.xyz - startPosition;
         float rayLength = length(rayVector);
         vec3 rayDirection = rayVector / rayLength;
 
@@ -576,13 +591,15 @@ vec3 computeFogAccumDirectional(vec4 position, int lightIndex)
         vec3 currentPosition = startPosition + step * dithering;
         for (int i = 0; i < ssvfSteps; ++i)
         {
-            // step through ray, accumulating fog light moment
+            // compute depths
             vec4 positionShadowClip = shadowMatrix * vec4(currentPosition, 1.0);
             vec3 shadowTexCoordsProj = positionShadowClip.xyz / positionShadowClip.w;
             vec2 shadowTexCoords = vec2(shadowTexCoordsProj.x, shadowTexCoordsProj.y) * 0.5 + 0.5;
             bool shadowTexCoordsInRange = shadowTexCoords.x >= 0.0 && shadowTexCoords.x < 1.0 && shadowTexCoords.y >= 0.0 && shadowTexCoords.y < 1.0;
             float shadowZ = shadowTexCoordsProj.z * 0.5 + 0.5;
             float shadowDepth = shadowTexCoordsInRange ? texture(shadowTextures[shadowIndex], shadowTexCoords).x : 1.0;
+
+            // step through ray, accumulating fog light moment
             if (shadowZ <= shadowDepth || shadowZ >= 1.0f)
             {
                 // mie scaterring approximated with Henyey-Greenstein phase function
@@ -590,6 +607,8 @@ vec3 computeFogAccumDirectional(vec4 position, int lightIndex)
                 float fogMoment = (1.0 - asymmetrySquared) / (4.0 * PI * pow(1.0 + asymmetrySquared - 2.0 * ssvfAsymmetry * theta, 1.5));
                 result += fogMoment;
             }
+            
+            // step
             currentPosition += step;
         }
         result = smoothstep(0.0, 1.0, result / ssvfSteps) * lightColors[lightIndex] * lightBrightnesses[lightIndex] * ssvfIntensity;
@@ -786,9 +805,9 @@ void main()
             {
                 switch (lightType)
                 {
-                    case 0: { shadowScalar = computeShadowScalarPoint(position, lightOrigin, shadowMaps[shadowIndex - SHADOW_TEXTURES_MAX]); break; } // point
-                    case 1: { shadowScalar = computeShadowScalarSpot(position, lightConeOuters[i], shadowMatrices[shadowIndex], shadowTextures[shadowIndex]); break; } // spot
-                    default: { shadowScalar = computeShadowScalarDirectional(position, shadowMatrices[shadowIndex], shadowTextures[shadowIndex]); break; } // directional
+                    case 0: { shadowScalar = computeShadowScalarPoint(position, lightOrigin, shadowIndex - SHADOW_TEXTURES_MAX); break; } // point
+                    case 1: { shadowScalar = computeShadowScalarSpot(position, lightConeOuters[i], shadowIndex); break; } // spot
+                    default: { shadowScalar = computeShadowScalarDirectional(position, shadowIndex); break; } // directional
                 }
             }
 
@@ -823,21 +842,21 @@ void main()
             // accumulate fog
             if (ssvfEnabled == 1 && lightDesireFogs[i] == 1)
             {
-                vec3 fog = vec3(0.0);
                 switch (lightType)
                 {
-                    case 0: { fog = computeFogAccumPoint(position, i); break; } // point
-                    case 1: { fog = computeFogAccumSpot(position, i); break; } // spot
-                    default: { fog = computeFogAccumDirectional(position, i); break; } // directional
+                    case 0: { fogAccum.rgb += computeFogAccumPoint(position, i); break; } // point
+                    case 1: { fogAccum.rgb += computeFogAccumSpot(position, i); break; } // spot
+                    default: { fogAccum.rgb += computeFogAccumDirectional(position, i); break; } // directional
                 }
-                fogAccum += vec4(fog, 0.0);
             }
         }
 
         // compute ambient light
         vec3 ambientColor = ambientColorAndBrightness.rgb;
         float ambientBrightness = ambientColorAndBrightness.a;
-        vec3 ambientLight = ambientColor * ambientBrightness * ambientOcclusion;
+        float ambientBoostFactor = smoothstep(1.0 - lightAmbientBoostCutoff, 1.0, 1.0 - roughness);
+        float ambientBoost = 1.0 + ambientBoostFactor * lightAmbientBoostScalar;
+        vec3 ambientLight = ambientColor * ambientBrightness * ambientBoost * ambientOcclusion;
 
         // compute diffuse term
         vec3 f = fresnelSchlickRoughness(nDotV, f0, roughness);

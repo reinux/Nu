@@ -3,6 +3,7 @@
 
 namespace Nu
 open System
+open System.Collections.Generic
 open System.Numerics
 open Prime
 
@@ -662,27 +663,25 @@ module WorldEntityModule =
 
         /// Get all the entities in a group.
         static member getEntities (group : Group) world =
-            let rec getEntitiesRec parent world =
-                let simulants = World.getSimulants world
-                match simulants.TryGetValue parent with
-                | (true, entitiesOpt) ->
-                    match entitiesOpt with
-                    | Some entities ->
-                        seq {
-                            yield! Seq.map cast<Entity> entities
-                            for entity in entities do
-                                yield! getEntitiesRec entity world }
-                    | None -> Seq.empty
-                | (false, _) -> Seq.empty
-            getEntitiesRec (group :> Simulant) world
+            match world.Simulants.TryGetValue group with
+            | (true, childrenOpt) ->
+                match childrenOpt with
+                | Some children ->
+                    seq {
+                        for child in children do
+                            let childEntity = child :?> Entity
+                            yield childEntity
+                            yield! childEntity.GetDescendants world }
+                | None -> Seq.empty
+            | (false, _) -> Seq.empty
 
         /// Get all the entities directly parented by the group.
         static member getSovereignEntities (group : Group) world =
             let simulants = World.getSimulants world
             match simulants.TryGetValue (group :> Simulant) with
-            | (true, entitiesOpt) ->
-                match entitiesOpt with
-                | Some entities -> entities |> Seq.map cast<Entity> |> seq
+            | (true, childrenOpt) ->
+                match childrenOpt with
+                | Some children -> children |> Seq.map cast<Entity>
                 | None -> Seq.empty
             | (false, _) -> Seq.empty
 
@@ -802,19 +801,20 @@ module WorldEntityModule =
                 | None -> next.GetOrder world / 2L
             World.setEntityOrder order entity world |> snd'
 
-        static member private generateEntitySequentialName2 dispatcherName existingEntityNames =
+        static member private generateEntitySequentialName2 dispatcherName (entityNames : string HashSet) =
             let mutable name = Gen.nameForEditor dispatcherName
-            if Set.contains name existingEntityNames
-            then World.generateEntitySequentialName2 dispatcherName existingEntityNames
+            if entityNames.Contains name 
+            then World.generateEntitySequentialName2 dispatcherName entityNames
             else name
 
         /// Generate a sequential, editor-friendly entity name.
         static member generateEntitySequentialName dispatcherName group world =
-            let existingEntityNames =
-                World.getEntities group world |>
-                Seq.map (fun entity -> entity.Name) |>
-                Set.ofSeq
-            World.generateEntitySequentialName2 dispatcherName existingEntityNames
+            let entityNames =
+                world.EntityStates |> // OPTIMIZATION: this approach is faster than World.getEntities in big scenes.
+                Seq.filter (fun (entity, _) -> entity.Group = group) |>
+                Seq.map (fun (entity, _) -> entity.Name) |>
+                hashSetPlus StringComparer.Ordinal
+            World.generateEntitySequentialName2 dispatcherName entityNames
 
         /// Clear any entity on the world's clipboard.
         static member clearEntityFromClipboard (_ : World) =
