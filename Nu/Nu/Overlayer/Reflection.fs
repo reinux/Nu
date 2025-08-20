@@ -10,6 +10,7 @@ open System.Reflection
 open FSharp.Reflection
 open Prime
 
+/// Provides engine-specific reflection functionality.
 [<RequireQualifiedAccess>]
 module Reflection =
 
@@ -17,6 +18,9 @@ module Reflection =
 
     let private AssembliesLoaded =
         Dictionary<string, Assembly> StringComparer.Ordinal
+
+    let private BaseTypesExceptObjectCache =
+        Dictionary<Type, Type list> HashIdentity.Structural
 
     let private PropertyDefinitionsCache =
         Dictionary<Type, PropertyDefinition list> HashIdentity.Structural
@@ -35,6 +39,14 @@ module Reflection =
         Constants.Engine.NonPersistentPropertyNames
         |> Seq.map (flip pair true)
         |> dictPlus StringComparer.Ordinal
+
+    /// Load all the referenced assemblies of an assembly transitively that satisfy the given predicate.
+    let rec loadReferencedAssembliesTransitively assemblyNamePredicate (assembly : Assembly) =
+        [|for assemblyName in assembly.GetReferencedAssemblies () do
+            if assemblyNamePredicate assemblyName then
+                try let assembly = Assembly.Load assemblyName
+                    yield! loadReferencedAssembliesTransitively assemblyNamePredicate assembly
+                with _ -> ()|]
 
     let rec private memoizable2 level (ty : Type) =
         match MemoizableMemo.TryGetValue ty with
@@ -103,12 +115,18 @@ module Reflection =
 
     /// Get the concrete base types of a type excepting the object type.
     let rec getBaseTypesExceptObject (targetType : Type) =
-        match targetType.BaseType with
-        | null -> []
-        | baseType ->
-            if baseType <> typeof<obj>
-            then baseType :: getBaseTypesExceptObject baseType
-            else []
+        match BaseTypesExceptObjectCache.TryGetValue targetType with
+        | (true, baseTypes) -> baseTypes
+        | (false, _) ->
+            let baseTypes =
+                match targetType.BaseType with
+                | null -> []
+                | baseType ->
+                    if baseType <> typeof<obj>
+                    then baseType :: getBaseTypesExceptObject baseType
+                    else []
+            BaseTypesExceptObjectCache.Add (targetType, baseTypes)
+            baseTypes
 
     /// Get the property definitions of a target type not considering inheritance.
     /// OPTIMIZATION: Memoized for efficiency since Properties will likely return a newly constructed list.
@@ -533,6 +551,7 @@ module Reflection =
             for assembly in AppDomain.CurrentDomain.GetAssemblies () do
                 AssembliesLoaded.[assembly.FullName] <- assembly
 
+/// Reflection operators.
 [<AutoOpen>]
 module ReflectionOperators =
 
@@ -555,22 +574,3 @@ module ReflectionOperators =
                         value
                     | None -> failconv "Could not promote or automatically construct a default value to the required type."
             else value
-
-namespace Prime
-open Nu
-    
-/// In tandem with the define literal, grants a nice syntax to define value properties.
-type [<NoEquality; NoComparison>] ValueDescription =
-    { NonPersistentDescription : unit }
-        
-    /// Some magic syntax for composing value properties.
-    static member (?) (_ : 'a, propertyName) =
-        fun (value : 'a) ->
-            Reflection.initPropertyNonPersistent true propertyName
-            Define? propertyName value
-
-[<AutoOpen>]
-module ReflectionSyntax =
-
-    /// In tandem with the ValueDescription type, grants a nice syntax to define value properties.
-    let NonPersistent = { NonPersistentDescription = () }

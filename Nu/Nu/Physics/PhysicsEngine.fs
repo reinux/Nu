@@ -265,23 +265,25 @@ type BodyType =
     | KinematicCharacter
     | Dynamic
     | DynamicCharacter
+    | Vehicle
 
     // Check that this body type is some sort of character.
     member this.IsCharacter =
         match this with
-        | Static | Kinematic | Dynamic -> false
+        | Static | Kinematic | Dynamic | Vehicle -> false
         | KinematicCharacter | DynamicCharacter -> true
 
 /// The way in which an entity's motion is driven by a corresponding body.
 type PhysicsMotion =
 
-    /// When body transform message comes in from physics subsystem, entity's transform will be set by the game engine.
-    /// When entity's transform is set by the user, body transform message will be sent to physics engine.
+    /// When a body transform message comes in from physics subsystem, the associated entity's transform will be set by
+    /// the game engine. When an entity's transform is set by the user, the associated body's transform message will be
+    /// sent to physics engine.
     | SynchronizedMotion
 
-    /// When body transform message comes in from physics subsystem, entity's transform will not be set by the game
-    /// engine; instead an event will be published. When entity's transform is set by the user, nothing will be sent to
-    /// the physics engine.
+    /// When a body transform message comes in from physics subsystem, the associated entity's transform will not be
+    /// set by the game engine; instead an event will be published that can be handled manually. When an entity's
+    /// transform is set by the user, nothing will be sent to the physics engine.
     | ManualMotion
 
 /// The properties specific to the utilization of the character body types.
@@ -308,6 +310,12 @@ type [<SymbolicExpansion>] CharacterProperties =
           StairStepForwardMin = 0.02f
           StairCosAngleForwardContact = cos (Math.DegreesToRadians 75.0f) }
 
+/// The properties needed to describe the vehicle aspects of a body.
+type VehicleProperties =
+    | VehiclePropertiesAbsent
+    | VehiclePropertiesAether
+    | VehiclePropertiesJolt of JoltPhysicsSharp.VehicleConstraintSettings
+
 /// The properties needed to describe the physical part of a body.
 type BodyProperties =
     { Enabled : bool
@@ -327,6 +335,7 @@ type BodyProperties =
       Substance : Substance
       GravityOverride : Vector3 option
       CharacterProperties : CharacterProperties
+      VehicleProperties : VehicleProperties
       CollisionDetection : CollisionDetection
       CollisionCategories : int
       CollisionMask : int
@@ -437,6 +446,26 @@ type SetBodyAngularVelocityMessage =
     { BodyId : BodyId
       AngularVelocity : Vector3 }
 
+/// A message to the physics system to set the forward input of a vehicle body.
+type SetBodyVehicleForwardInputMessage =
+    { BodyId : BodyId
+      ForwardInput : single }
+
+/// A message to the physics system to set the right input of a vehicle body.
+type SetBodyVehicleRightInputMessage =
+    { BodyId : BodyId
+      RightInput : single }
+
+/// A message to the physics system to set the brake input of a vehicle body.
+type SetBodyVehicleBrakeInputMessage =
+    { BodyId : BodyId
+      BrakeInput : single }
+
+/// A message to the physics system to set the brake input of a vehicle body.
+type SetBodyVehicleHandBrakeInputMessage =
+    { BodyId : BodyId
+      HandBrakeInput : single }
+
 /// A message to the physics system to apply a linear impulse to a body.
 type ApplyBodyLinearImpulseMessage =
     { BodyId : BodyId
@@ -510,6 +539,10 @@ type PhysicsMessage =
     | SetBodyRotationMessage of SetBodyRotationMessage
     | SetBodyLinearVelocityMessage of SetBodyLinearVelocityMessage
     | SetBodyAngularVelocityMessage of SetBodyAngularVelocityMessage
+    | SetBodyVehicleForwardInputMessage of SetBodyVehicleForwardInputMessage
+    | SetBodyVehicleRightInputMessage of SetBodyVehicleRightInputMessage
+    | SetBodyVehicleBrakeInputMessage of SetBodyVehicleBrakeInputMessage
+    | SetBodyVehicleHandBrakeInputMessage of SetBodyVehicleHandBrakeInputMessage
     | ApplyBodyLinearImpulseMessage of ApplyBodyLinearImpulseMessage
     | ApplyBodyAngularImpulseMessage of ApplyBodyAngularImpulseMessage
     | ApplyBodyForceMessage of ApplyBodyForceMessage
@@ -521,34 +554,58 @@ type PhysicsMessage =
 /// TODO: investigate if we'll ever have to handle enough physics or integration messages to necessitate the use of
 /// SList instead of List.
 type PhysicsEngine =
+    
     /// Check that the physics engine contain the body with the given body id.
     abstract GetBodyExists : bodyId : BodyId -> bool
+    
     /// Get the contact normals of the body with the given body id.
     abstract GetBodyContactNormals : bodyId : BodyId -> Vector3 array
+    
     /// Get the linear velocity of the body with the given body id.
     abstract GetBodyLinearVelocity : bodyId : BodyId -> Vector3
+    
     /// Get the angular velocity of the body with the given body id.
     abstract GetBodyAngularVelocity : bodyId : BodyId -> Vector3
+    
     /// Get the contact normals where the body with the given body id is touching the ground.
     abstract GetBodyToGroundContactNormals : bodyId : BodyId -> Vector3 array
+    
     /// Get a contact normal where the body with the given body id is touching the ground (if one exists).
     abstract GetBodyToGroundContactNormalOpt : bodyId : BodyId -> Vector3 option
+    
     /// Get a contact tangent where the body with the given body id is touching the ground (if one exists).
     abstract GetBodyToGroundContactTangentOpt : bodyId : BodyId -> Vector3 option
+    
     /// Check that the body with the given body id is on the ground.
     abstract GetBodyGrounded : bodyId : BodyId -> bool
+    
     /// Check that the body with the given body id is a sensor.
     abstract GetBodySensor : bodyId : BodyId -> bool
+    
+    /// Get the wheel speed framed in terms of the clutch (0.0f if not a wheeled vehicle).
+    abstract GetWheelSpeedAtClutch : bodyId : BodyId -> single
+    
+    /// Get the given wheel's model matrix (identity if not a wheeled vehicle or invalid wheel).
+    abstract GetWheelModelMatrix : wheelModelRight : Vector3 * wheelModelUp : Vector3 * wheelIndex : int * bodyId : BodyId -> Matrix4x4
+    
+    /// Get the given wheel's angular velocity (0.0f if not a wheeled vehicle or invalid wheel).
+    abstract GetWheelAngularVelocity : wheelIndex : int * bodyId : BodyId -> single
+    
     /// Cast a ray into the physics bodies.
     abstract RayCast : ray : Ray3 * collisionMask : int * closestOnly : bool -> BodyIntersection array
+    
     /// Handle a physics message from an external source.
     abstract HandleMessage : message : PhysicsMessage -> unit
+    
     /// Attempt to integrate the physics system one step.
     abstract TryIntegrate : delta : GameTime -> IntegrationMessage SArray option
+    
     /// Attempt torender physics with the given settings and renderer objects.
     abstract TryRender : eyeCenter : Vector3 * eyeFrustum : Frustum * renderSettings : obj * rendererObj : obj -> unit
+    
     /// Clear the physics simulation, returning false if no physics objects existed to begin with. For internal use only.
     abstract ClearInternal : unit -> unit
+    
     /// Handle physics clean up by freeing all created resources.
     abstract CleanUp : unit -> unit
 
@@ -566,6 +623,9 @@ type [<ReferenceEquality>] StubPhysicsEngine =
         member physicsEngine.GetBodyToGroundContactTangentOpt _ = failwith "No bodies in StubPhysicsEngine"
         member physicsEngine.GetBodyGrounded _ = failwith "No bodies in StubPhysicsEngine"
         member physicsEngine.GetBodySensor _ = failwith "No bodies in StubPhysicsEngine"
+        member physicsEngine.GetWheelSpeedAtClutch _ = failwith "No bodies in StubPhysicsEngine"
+        member physicsEngine.GetWheelModelMatrix (_, _, _, _) = failwith "No bodies in StubPhysicsEngine"
+        member physicsEngine.GetWheelAngularVelocity (_, _) = failwith "No bodies in StubPhysicsEngine"
         member physicsEngine.RayCast (_, _, _) = failwith "No bodies in StubPhysicsEngine"
         member physicsEngine.HandleMessage _ = ()
         member physicsEngine.TryIntegrate _ = None
@@ -573,6 +633,7 @@ type [<ReferenceEquality>] StubPhysicsEngine =
         member physicsEngine.ClearInternal () = ()
         member physicsEngine.CleanUp () = ()
 
+/// Miscellaneous physics operations.
 [<RequireQualifiedAccess>]
 module Physics =
 

@@ -12,6 +12,7 @@ open SDL2
 open ImGuiNET
 open Prime
 
+/// Universal function definitions for the world (2/4).
 [<AutoOpen>]
 module WorldModule2 =
 
@@ -140,9 +141,8 @@ module WorldModule2 =
                 localTime - world.TickDelta * 2L >= lifeTime
             | (_, _) -> failwithumf ()
 
-        static member private updateScreenIncoming transitionTime (selectedScreen : Screen) world =
-            match World.getLiveness world with
-            | Live ->
+        static member private updateScreenIncoming transitionTime (selectedScreen : Screen) (world : World) =
+            if world.Alive then
                 if transitionTime = world.GameTime then
                     let eventTrace = EventTrace.debug "World" "updateScreenIncoming" "IncomingStart" EventTrace.empty
                     World.publishPlus () selectedScreen.IncomingStartEvent eventTrace selectedScreen false false world
@@ -152,18 +152,14 @@ module WorldModule2 =
                         | Some song when assetEq song.Song playSong.Song -> () // do nothing when song is the same
                         | _ -> World.playSong playSong.FadeInTime playSong.FadeOutTime GameTime.zero playSong.RepeatLimitOpt playSong.Volume playSong.Song world // play song when song is different
                     | None -> ()
-                match World.getLiveness world with
-                | Live ->
+                if world.Alive then
                     if World.updateScreenTransition3 Incoming selectedScreen world then
                         let eventTrace = EventTrace.debug "World" "updateScreenIncoming" "IncomingFinish" EventTrace.empty
                         World.setScreenTransitionStatePlus (IdlingState world.GameTime) selectedScreen world
                         World.publishPlus () selectedScreen.IncomingFinishEvent eventTrace selectedScreen false false world
-                | Dead -> ()
-            | Dead -> ()
 
-        static member private updateScreenIdling transitionTime (selectedScreen : Screen) world =
-            match World.getLiveness world with
-            | Live ->
+        static member private updateScreenIdling transitionTime (selectedScreen : Screen) (world : World) =
+            if world.Alive then
                 if world.Accompanied && world.Halted then // special case to play song when halted in editor
                     match (selectedScreen.GetIncoming world).SongOpt with
                     | Some playSong ->
@@ -212,7 +208,6 @@ module WorldModule2 =
                         World.setScreenTransitionStatePlus (OutgoingState transitionTime) selectedScreen world
                         World.updateScreenOutgoing transitionTime selectedScreen world
                     | DesireIgnore -> ()
-            | Dead -> ()
 
         static member private updateScreenOutgoing transitionTime (selectedScreen : Screen) (world : World) =
             if transitionTime = world.GameTime then
@@ -244,19 +239,15 @@ module WorldModule2 =
                 | None -> ()
                 let eventTrace = EventTrace.debug "World" "updateScreenTransition" "OutgoingStart" EventTrace.empty
                 World.publishPlus () selectedScreen.OutgoingStartEvent eventTrace selectedScreen false false world
-            match World.getLiveness world with
-            | Live ->
+            if world.Alive then
                 if World.updateScreenTransition3 Outgoing selectedScreen world then
                     let transitionTime = world.GameTime
                     World.setScreenTransitionStatePlus (IdlingState transitionTime) selectedScreen world
                     World.updateScreenIdling transitionTime selectedScreen world
-                    match World.getLiveness world with
-                    | Live ->
+                    if world.Alive then
                         let eventTrace = EventTrace.debug "World" "updateScreenOutgoing" "OutgoingFinish" EventTrace.empty
                         World.publishPlus () selectedScreen.OutgoingFinishEvent eventTrace selectedScreen false false world
-                    | Dead -> ()
-                    match World.getLiveness world with
-                    | Live ->
+                    if world.Alive then
                         let destinationOpt =
                             match selectedScreen.GetSlideOpt world with
                             | Some slide -> Some slide.Destination
@@ -283,8 +274,6 @@ module WorldModule2 =
                                 World.updateScreenIncoming transitionTime destination world
                             | DesireNone -> ()
                             | DesireIgnore -> ()
-                    | Dead -> ()
-            | Dead -> ()
 
         static member private updateScreenRequestedSong world =
             match World.getSelectedScreenOpt world with
@@ -819,6 +808,8 @@ module WorldModule2 =
                     let entityState = World.getEntityState entity world
                     let element = Octelement.make entityState.VisibleInView entityState.StaticInPlay entityState.LightProbe entityState.Light entityState.Presence entityState.PresenceInPlay entityState.Bounds entity
                     Octree.addElement entityState.Presence entityState.PresenceInPlay entityState.Bounds element world.Octree
+            if SList.exists (fun (entity : Entity) -> entity.Has<LightProbe3dFacet> world && entity.GetProbeStale world) entities3d then
+                World.requestLightMapRender world
                 
         static member internal evictScreenElements screen world =
             let entities = World.getGroups screen world |> Seq.map (flip World.getEntities world) |> Seq.concat |> SArray.ofSeq
@@ -873,18 +864,16 @@ module WorldModule2 =
                 let entityDispatchers = World.getEntityDispatchers world
                 let facets = World.getFacets world
                 let intrinsicOverlays = World.makeIntrinsicOverlays facets entityDispatchers
-                match Overlayer.tryMakeFromFile intrinsicOverlays outputOverlayerFilePath with
-                | Right overlayer ->
+                let overlayer = Overlayer.makeFromFileOpt intrinsicOverlays outputOverlayerFilePath
 
-                    // update and apply overlays to all entities
-                    World.setOverlayer overlayer world
-                    let entities = World.getEntities1 world
-                    for entity in entities do
-                        World.applyEntityOverlay overlayerOld overlayer entity world
-                    Right overlayer
+                // update and apply overlays to all entities
+                World.setOverlayer overlayer world
+                let entities = World.getEntities1 world
+                for entity in entities do
+                    World.applyEntityOverlay overlayerOld overlayer entity world
+                Right overlayer
 
-                // propagate errors
-                | Left error -> Left error
+            // propagate errors
             with exn -> Left (scstring exn)
 
         /// Send a message to the subsystems to reload their existing assets.
@@ -910,18 +899,16 @@ module WorldModule2 =
                 //File.SetAttributes (outputAssetGraphFilePath, FileAttributes.ReadOnly)
 
                 // attempt to load asset graph
-                match AssetGraph.tryMakeFromFile outputAssetGraphFilePath with
-                | Right assetGraph ->
+                let assetGraph = AssetGraph.makeFromFileOpt outputAssetGraphFilePath
 
-                    // rebuild and reload assets
-                    AssetGraph.buildAssets inputDirectory outputDirectory refinementDirectory false assetGraph
-                    Metadata.reloadMetadata ()
-                    World.reloadExistingAssets world
-                    World.publishPlus () Nu.Game.Handle.AssetsReloadEvent (EventTrace.debug "World" "publishAssetsReload" "" EventTrace.empty) Nu.Game.Handle false false world
-                    Right assetGraph
+                // rebuild and reload assets
+                AssetGraph.buildAssets inputDirectory outputDirectory refinementDirectory false assetGraph
+                Metadata.reloadMetadata ()
+                World.reloadExistingAssets world
+                World.publishPlus () Nu.Game.Handle.AssetsReloadEvent (EventTrace.debug "World" "publishAssetsReload" "" EventTrace.empty) Nu.Game.Handle false false world
+                Right assetGraph
 
-                // propagate errors
-                | Left error -> Left error
+            // propagate error
             with exn -> Left (scstring exn)
 
         /// Attempt to reload asset graph, build assets, then reload built assets.
@@ -1189,9 +1176,8 @@ module WorldModule2 =
                     World.publishPlus eventData (Nu.Game.Handle.GamepadButtonChangeEvent index) eventTrace Nu.Game.Handle true true world
             | _ -> ()
 
-        static member private processIntegrationMessage integrationMessage world =
-            match World.getLiveness world with
-            | Live ->
+        static member private processIntegrationMessage integrationMessage (world : World) =
+            if world.Alive then
                 match integrationMessage with
                 | BodyPenetrationMessage bodyPenetrationMessage ->
                     match bodyPenetrationMessage.BodyShapeSource.BodyId.BodySource with
@@ -1246,7 +1232,6 @@ module WorldModule2 =
                             let eventTrace = EventTrace.debug "World" "processIntegrationMessage" "" EventTrace.empty
                             World.publishPlus breakData entity.BodyJointBreakEvent eventTrace entity false false world
                     | _ -> ()
-            | Dead -> ()
 
         /// Sweep the quadtree clean of all empty nodes.
         /// It can make sense to call this after loading a new level.
@@ -1518,7 +1503,6 @@ module WorldModule2 =
                     then hashSetPlus HashIdentity.Structural (Seq.filter (fun (group : Group) -> not (group.GetVisible world)) groups)
                     else hashSetPlus HashIdentity.Structural []
                 match renderPass with
-                | NormalPass -> World.getElements3dInView HashSet3dNormalCached world
                 | LightMapPass (_, lightMapBounds) ->
                     let hashSet = HashSet ()
                     World.getElements3dInViewBox lightMapBounds hashSet world
@@ -1527,11 +1511,12 @@ module WorldModule2 =
                             HashSet3dNormalCached.Add element |> ignore<bool>
                 | ShadowPass (_, _, shadowLightType, _, shadowFrustum) -> World.getElements3dInViewFrustum (shadowLightType <> DirectionalLight) true shadowFrustum HashSet3dNormalCached world
                 | ReflectionPass (_, _) -> ()
+                | NormalPass -> World.getElements3dInView HashSet3dNormalCached world
                 match renderPass with
-                | NormalPass -> World.getElements2dInView HashSet2dNormalCached world
                 | LightMapPass (_, _) -> ()
                 | ShadowPass (_, _, _, _, _) -> ()
                 | ReflectionPass (_, _) -> ()
+                | NormalPass -> World.getElements2dInView HashSet2dNormalCached world
                 world.Timers.RenderGatherTimer.Stop ()
 
                 // render game
@@ -1673,20 +1658,19 @@ module WorldModule2 =
             finally
                 HashSet3dShadowCached.Clear ()
 
-        static member private processInput world =
+        static member private processInput (world : World) =
             if SDL.SDL_WasInit SDL.SDL_INIT_TIMER <> 0u then
                 MouseState.update ()
                 KeyboardState.update ()
-                let mutable liveness = World.getLiveness world
+                let mutable alive = world.Alive
                 let mutable polledEvent = SDL.SDL_Event ()
                 while
-                    (match liveness with Live -> true | Dead -> false) &&
+                    alive &&
                     SDL.SDL_PollEvent &polledEvent <> 0 do
                     World.processInput2 polledEvent world
-                    liveness <- World.getLiveness world
-                match liveness with
-                | Dead -> World.exit world
-                | Live -> ()
+                    alive <- world.Alive
+                if not alive then
+                    World.exit world
 
         static member private processPhysics2d world =
             let physicsEngine = World.getPhysicsEngine2d world
@@ -1719,47 +1703,42 @@ module WorldModule2 =
             World.cleanUpSubsystems world |> ignore
             world.WorldExtension.Plugin.CleanUp ()
 
-        /// Run the game engine with the given handlers, but don't clean up at the end, and return the world.
-        static member runWithoutCleanUp runWhile preProcess perProcess postProcess imGuiProcess imGuiPostProcess liveness firstFrame (world : World) =
+        /// Run the game engine with the given handlers, but don't clean up at the end.
+        static member runWithoutCleanUp runWhile preProcess perProcess postProcess imGuiProcess imGuiPostProcess firstFrame (world : World) =
 
             // run loop if user-defined run-while predicate passes
             world.Timers.FrameTimer.Restart ()
-            if runWhile world then
+            if world.Alive && runWhile world then
 
                 // run user-defined pre-process callbacks
                 world.Timers.PreProcessTimer.Restart ()
                 World.preProcess world
                 preProcess world
                 world.Timers.PreProcessTimer.Stop ()
-                match liveness with
-                | Live ->
+                if world.Alive then
 
                     // update screen transitioning process
                     World.updateScreenTransition world
                     World.updateScreenRequestedSong world
-                    match World.getLiveness world with
-                    | Live ->
+                    if world.Alive then
 
                         // process HID inputs
                         world.Timers.InputTimer.Restart ()
                         World.processInput world
                         world.Timers.InputTimer.Stop ()
-                        match World.getLiveness world with
-                        | Live ->
+                        if world.Alive then
 
                             // process physics
                             world.Timers.PhysicsTimer.Restart ()
                             World.processPhysics world
                             world.Timers.PhysicsTimer.Stop ()
-                            match World.getLiveness world with
-                            | Live ->
+                            if world.Alive then
 
                                 // pre-update simulants
                                 world.Timers.PreUpdateTimer.Restart ()
                                 World.preUpdateSimulants world
                                 world.Timers.PreUpdateTimer.Stop ()
-                                match World.getLiveness world with
-                                | Live ->
+                                if world.Alive then
 
                                     // update simulants
                                     world.Timers.UpdateTimer.Restart ()
@@ -1767,54 +1746,47 @@ module WorldModule2 =
                                     World.updateSimulants world
                                     WorldModule.UpdatingSimulants <- false
                                     world.Timers.UpdateTimer.Stop ()
-                                    match World.getLiveness world with
-                                    | Live ->
+                                    if world.Alive then
 
                                         // post-update simulants
                                         world.Timers.PostUpdateTimer.Restart ()
                                         World.postUpdateSimulants world
                                         world.Timers.PostUpdateTimer.Stop ()
-                                        match World.getLiveness world with
-                                        | Live ->
+                                        if world.Alive then
 
                                             // run user-defined per-process callbacks
                                             world.Timers.PerProcessTimer.Restart ()
                                             World.perProcess world
                                             perProcess world
                                             world.Timers.PerProcessTimer.Stop ()
-                                            match World.getLiveness world with
-                                            | Live ->
+                                            if world.Alive then
 
                                                 // process coroutines
                                                 world.Timers.CoroutinesTimer.Restart ()
                                                 World.processCoroutines world
                                                 world.Timers.CoroutinesTimer.Stop ()
-                                                match World.getLiveness world with
-                                                | Live ->
+                                                if world.Alive then
 
                                                     // process tasklets that have been scheduled and are ready to run
                                                     world.Timers.TaskletsTimer.Restart ()
-                                                    WorldModule.TaskletProcessingStarted <- true
+                                                    WorldModule.EndFrameProcessingStarted <- true
                                                     World.processTasklets world
                                                     world.Timers.TaskletsTimer.Stop ()
-                                                    match World.getLiveness world with
-                                                    | Live ->
+                                                    if world.Alive then
 
                                                         // destroy simulants that have been marked for destruction at the end of frame
                                                         world.Timers.DestructionTimer.Restart ()
                                                         World.processImSim world
                                                         World.destroySimulants world
                                                         world.Timers.DestructionTimer.Stop ()
-                                                        match World.getLiveness world with
-                                                        | Live ->
-                                                    
+                                                        if world.Alive then
+
                                                             // run engine and user-defined post-process callbacks
                                                             world.Timers.PostProcessTimer.Restart ()
                                                             World.postProcess world
                                                             postProcess world
                                                             world.Timers.PostProcessTimer.Stop ()
-                                                            match World.getLiveness world with
-                                                            | Live ->
+                                                            if world.Alive then
 
                                                                 // render simulants, skipping culling upon request (like when a light probe needs to be rendered)
                                                                 world.Timers.RenderMessagesTimer.Restart ()
@@ -1822,8 +1794,7 @@ module WorldModule2 =
                                                                 World.acknowledgeLightMapRenderRequest world
                                                                 World.renderSimulants lightMapRenderRequested world
                                                                 world.Timers.RenderMessagesTimer.Stop ()
-                                                                match World.getLiveness world with
-                                                                | Live ->
+                                                                if world.Alive then
 
                                                                     // process audio
                                                                     world.Timers.AudioTimer.Restart ()
@@ -1838,21 +1809,18 @@ module WorldModule2 =
 
                                                                     // process rendering (1/2)
                                                                     let rendererProcess = World.getRendererProcess world
-                                                                    if not firstFrame then rendererProcess.Swap ()
+                                                                    if not firstFrame then rendererProcess.RequestSwap ()
 
                                                                     // process frame pacing mechanics
                                                                     if world.Timers.MainThreadTimer.IsRunning then
 
                                                                         // automatically enable frame pacing when need is detected
-                                                                        let world =
-                                                                            if not world.FramePacing then
-                                                                                let frameTimeMinimum = GameTime.DesiredFrameTimeMinimum
-                                                                                if world.Timers.MainThreadTimer.Elapsed.TotalSeconds < frameTimeMinimum * 0.9 then FramePaceIssues <- inc FramePaceIssues
-                                                                                FramePaceChecks <- inc FramePaceChecks
-                                                                                if FramePaceIssues = 15 then World.setFramePacing true world
-                                                                                if FramePaceChecks % 30 = 0 then FramePaceIssues <- 0
-                                                                                world
-                                                                            else world
+                                                                        if not world.FramePacing then
+                                                                            let frameTimeMinimum = GameTime.DesiredFrameTimeMinimum
+                                                                            if world.Timers.MainThreadTimer.Elapsed.TotalSeconds < frameTimeMinimum * 0.9 then FramePaceIssues <- inc FramePaceIssues
+                                                                            FramePaceChecks <- inc FramePaceChecks
+                                                                            if FramePaceIssues = 15 then World.setFramePacing true world
+                                                                            if FramePaceChecks % 30 = 0 then FramePaceIssues <- 0
 
                                                                         // pace frame when enabled
                                                                         if world.FramePacing then
@@ -1907,7 +1875,7 @@ module WorldModule2 =
 
                                                                     // update time and recur
                                                                     world.Timers.FrameTimer.Stop ()
-                                                                    WorldModule.TaskletProcessingStarted <- false
+                                                                    WorldModule.EndFrameProcessingStarted <- false
                                                                     World.updateTime world
                                                                     if world.Advancing then
                                                                         World.publish () (Events.TimeUpdateEvent --> Game) Game world
@@ -1919,27 +1887,12 @@ module WorldModule2 =
                                                                                     World.publish () (Events.TimeUpdateEvent --> group) group world
                                                                         | None -> ()
 
-                                                                    // recur or return
-                                                                    match World.getLiveness world with
-                                                                    | Live -> World.runWithoutCleanUp runWhile preProcess perProcess postProcess imGuiProcess imGuiPostProcess liveness false world
-                                                                    | Dead -> ()
-                                                                | Dead -> ()
-                                                            | Dead -> ()
-                                                        | Dead -> ()
-                                                    | Dead -> ()
-                                                | Dead -> ()
-                                            | Dead -> ()
-                                        | Dead -> ()
-                                    | Dead -> ()
-                                | Dead -> ()
-                            | Dead -> ()
-                        | Dead -> ()
-                    | Dead -> ()
-                | Dead -> ()
+                                                                    // recur
+                                                                    World.runWithoutCleanUp runWhile preProcess perProcess postProcess imGuiProcess imGuiPostProcess false world
 
         /// Run the game engine using the given world and returning exit code upon termination.
-        static member runWithCleanUp runWhile preProcess perProcess postProcess imGuiProcess imGuiPostProcess liveness firstFrame world =
-            try World.runWithoutCleanUp runWhile preProcess perProcess postProcess imGuiProcess imGuiPostProcess liveness firstFrame world
+        static member runWithCleanUp runWhile preProcess perProcess postProcess imGuiProcess imGuiPostProcess firstFrame world =
+            try World.runWithoutCleanUp runWhile preProcess perProcess postProcess imGuiProcess imGuiPostProcess firstFrame world
                 World.cleanUp world
                 Constants.Engine.ExitCodeSuccess
             with exn ->
@@ -1948,7 +1901,7 @@ module WorldModule2 =
                 Constants.Engine.ExitCodeFailure
 
 [<AutoOpen>]
-module EntityDispatcherModule2 =
+module EntityDispatcherModule =
 
     /// The ImSim dispatcher for entities.
     type [<AbstractClass>] EntityDispatcherImSim (is2d, physical, lightProbe, light) =
@@ -1977,7 +1930,7 @@ module EntityDispatcherModule2 =
                      scstring entity.EntityAddress + " but was " +
                      scstring world.ContextImSim + ". Did you forget to call the appropriate World.end function?")
 #endif
-            World.advanceContext entity.EntityAddress context world
+            World.setContextAndDeclared context entity.EntityAddress world
 
         /// ImSim process an entity.
         abstract Process : entity : Entity * world : World -> unit
@@ -1999,6 +1952,8 @@ module EntityDispatcherModule2 =
 
         static member Properties =
             [define Entity.Absolute true
+             define Entity.Size Constants.Engine.EntityGuiSizeDefault
+             define Entity.Presence Omnipresent
              define Entity.ColorDisabled Constants.Gui.ColorDisabledDefault
              define Entity.Layout Manual
              define Entity.LayoutMargin v2Zero
@@ -2191,6 +2146,8 @@ module EntityDispatcherModule2 =
 
         static member Properties =
             [define Entity.Absolute true
+             define Entity.Size Constants.Engine.EntityGuiSizeDefault
+             define Entity.Presence Omnipresent
              define Entity.ColorDisabled Constants.Gui.ColorDisabledDefault
              define Entity.Layout Manual
              define Entity.LayoutMargin v2Zero
@@ -2215,18 +2172,22 @@ module EntityDispatcherModule2 =
         static member Properties =
             [define Entity.Size Constants.Engine.EntityVuiSizeDefault]
 
+/// Entity PropertyDescriptor functions.
 [<RequireQualifiedAccess>]
 module EntityPropertyDescriptor =
 
+    /// Check that the described property exists for the given entity.
     let containsPropertyDescriptor propertyName (entity : Entity) world =
         propertyName = Constants.Engine.NamePropertyName ||
         PropertyDescriptor.containsPropertyDescriptor<EntityState> propertyName entity world
 
+    /// Get the property descriptors for the given entity.
     let getPropertyDescriptors (entity : Entity) world =
         let nameDescriptor = { PropertyName = Constants.Engine.NamePropertyName; PropertyType = typeof<string> }
         let propertyDescriptors = PropertyDescriptor.getPropertyDescriptors<EntityState> (Some entity) world
         nameDescriptor :: propertyDescriptors
 
+    /// Get the editor category of the described property.
     let getCategory propertyDescriptor =
         let propertyName = propertyDescriptor.PropertyName
         let baseProperties = Reflection.getPropertyDefinitions typeof<EntityDispatcher>
@@ -2252,11 +2213,12 @@ module EntityPropertyDescriptor =
              "Transition Properties"
         elif List.exists (fun (property : PropertyDefinition) -> propertyName = property.PropertyName) baseProperties then "Configuration Properties"
         elif propertyName = "MaterialProperties" then "Material Properties"
-        elif propertyName = "Material" then "Material Properties 2"
+        elif propertyName = "Material" || propertyName = "Clipped" then "Material Properties 2"
         elif propertyName = "NavShape" || propertyName = "Nav3dConfig" then "Navigation Properties"
         elif List.exists (fun (property : PropertyDefinition) -> propertyName = property.PropertyName) rigidBodyProperties then "Physics Properties"
         else "~ More Properties"
 
+    /// Get whether the described property is editable.
     let getEditable propertyDescriptor =
         let propertyName = propertyDescriptor.PropertyName
         if  propertyName = Constants.Engine.OverlayNameOptPropertyName ||
@@ -2267,18 +2229,22 @@ module EntityPropertyDescriptor =
             propertyName = "Angles" ||
             propertyName = "AnglesLocal" ||
             propertyName = "Light" ||
-            propertyName = "LightProbe" then
+            propertyName = "LightProbe" ||
+            propertyName = "PermafrozenPreBatches" ||
+            propertyName = "PermafrozenShapes" then
             false
         else
             propertyName = "Degrees" ||
             propertyName = "DegreesLocal" ||
             not (Reflection.isPropertyNonPersistentByName propertyName)
 
+    /// Get the value of the described property for the given entity.
     let getValue propertyDescriptor (entity : Entity) world : obj =
         match PropertyDescriptor.tryGetValue propertyDescriptor entity world with
         | Some value -> value
         | None -> null
 
+    /// Attempt to set the value of the described property for the given entity.
     let trySetValue (value : obj) propertyDescriptor (entity : Entity) world =
 
         // pull string quotes out of string
@@ -2353,7 +2319,7 @@ module GroupDispatcherModule =
                      scstring group.GroupAddress + " but was " +
                      scstring world.ContextImSim + ". Did you forget to call the appropriate World.end function?")
 #endif
-            World.advanceContext group.GroupAddress context world
+            World.setContextAndDeclared context group.GroupAddress world
 
         /// ImSim process a group.
         abstract Process : group : Group * world : World -> unit
@@ -2496,30 +2462,37 @@ module GroupDispatcherModule =
         abstract UntruncateModel : current : 'model * incoming : 'model -> 'model
         default this.UntruncateModel (_, incoming) = incoming
 
+/// Group PropertyDescriptor functions.
 [<RequireQualifiedAccess>]
 module GroupPropertyDescriptor =
 
+    /// Check that the described property exists for the given group.
     let containsPropertyDescriptor propertyName (group : Group) world =
         PropertyDescriptor.containsPropertyDescriptor<GroupState> propertyName group world
 
+    /// Get the property descriptors for the given group.
     let getPropertyDescriptors (group : Group) world =
         PropertyDescriptor.getPropertyDescriptors<GroupState> (Some group) world
 
+    /// Get the editor category of the described property.
     let getCategory propertyDescriptor =
         let propertyName = propertyDescriptor.PropertyName
         if propertyName = "Name" ||  propertyName.EndsWith "Model" then "Ambient Properties"
         elif propertyName = "Persistent" || propertyName = "Elevation" || propertyName = "Visible" then "Built-In Properties"
         else "Xtension Properties"
 
+    /// Get whether the described property is editable.
     let getEditable propertyDescriptor =
         let propertyName = propertyDescriptor.PropertyName
         not (Reflection.isPropertyNonPersistentByName propertyName)
 
+    /// Get the value of the described property for the given group.
     let getValue propertyDescriptor (group : Group) world : obj =
         match PropertyDescriptor.tryGetValue propertyDescriptor group world with
         | Some value -> value
         | None -> null
 
+    /// Attempt to set the value of the described property for the given group.
     let trySetValue (value : obj) propertyDescriptor (group : Group) world =
         
         // pull string quotes out of string
@@ -2568,7 +2541,7 @@ module ScreenDispatcherModule =
                      scstring screen.ScreenAddress + " but was " +
                      scstring world.ContextImSim + ". Did you forget to call World.endGroup?")
 #endif
-            World.advanceContext screen.ScreenAddress context world
+            World.setContextAndDeclared context screen.ScreenAddress world
 
         /// ImSim process a screen.
         abstract Process : selectionResults : SelectionEventData FQueue * screen : Screen * world : World -> unit
@@ -2711,30 +2684,37 @@ module ScreenDispatcherModule =
         abstract UntruncateModel : current : 'model * incoming : 'model -> 'model
         default this.UntruncateModel (_, incoming) = incoming
 
+/// Screen PropertyDescriptor functions.
 [<RequireQualifiedAccess>]
 module ScreenPropertyDescriptor =
 
+    /// Check that the described property exists for the given screen.
     let containsPropertyDescriptor propertyName (screen : Screen) world =
         PropertyDescriptor.containsPropertyDescriptor<ScreenState> propertyName screen world
 
+    /// Get the property descriptors for the given screen.
     let getPropertyDescriptors (screen : Screen) world =
         PropertyDescriptor.getPropertyDescriptors<ScreenState> (Some screen) world
 
+    /// Get the editor category of the described property.
     let getCategory propertyDescriptor =
         let propertyName = propertyDescriptor.PropertyName
         if propertyName = "Name" || propertyName.EndsWith "Model" then "Ambient Properties"
         elif propertyName = "Persistent" || propertyName = "Incoming" || propertyName = "Outgoing" || propertyName = "SlideOpt" then "Built-In Properties"
         else "Xtension Properties"
 
+    /// Get whether the described property is editable.
     let getEditable propertyDescriptor =
         let propertyName = propertyDescriptor.PropertyName
         not (Reflection.isPropertyNonPersistentByName propertyName)
 
+    /// Get the value of the described property for the given screen.
     let getValue propertyDescriptor (screen : Screen) world : obj =
         match PropertyDescriptor.tryGetValue propertyDescriptor screen world with
         | Some value -> value
         | None -> null
 
+    /// Attempt to set the value of the described property for the given screen.
     let trySetValue (value : obj) propertyDescriptor (screen : Screen) world =
         
         // pull string quotes out of string
@@ -2780,7 +2760,7 @@ module GameDispatcherModule =
                      scstring game.GameAddress + " but was " +
                      scstring world.ContextImSim + ". Did you forget to call World.endScreen?")
 #endif
-            World.advanceContext game.GameAddress context world
+            World.setContextAndDeclared context game.GameAddress world
 
         /// ImSim process a game.
         abstract Process : game : Game * world : World -> unit
@@ -2926,15 +2906,19 @@ module GameDispatcherModule =
         abstract UntruncateModel : current : 'model * incoming : 'model -> 'model
         default this.UntruncateModel (_, incoming) = incoming
 
+/// Game PropertyDescriptor functions.
 [<RequireQualifiedAccess>]
 module GamePropertyDescriptor =
 
+    /// Check that the described property exists for the game.
     let containsPropertyDescriptor propertyName (game : Game) world =
         PropertyDescriptor.containsPropertyDescriptor<GameState> propertyName game world
 
+    /// Get the property descriptors for the game.
     let getPropertyDescriptors (game : Game) world =
         PropertyDescriptor.getPropertyDescriptors<GameState> (Some game) world
 
+    /// Get the editor category of the described property.
     let getCategory propertyDescriptor =
         let propertyName = propertyDescriptor.PropertyName
         if propertyName = "Name" ||  propertyName.EndsWith "Model" then "Ambient Properties"
@@ -2943,15 +2927,18 @@ module GamePropertyDescriptor =
              "Built-In Properties"
         else "Xtension Properties"
 
+    /// Get whether the described property is editable.
     let getEditable propertyDescriptor =
         let propertyName = propertyDescriptor.PropertyName
         not (Reflection.isPropertyNonPersistentByName propertyName)
 
+    /// Get the value of the described property for the game.
     let getValue propertyDescriptor (game : Game) world : obj =
         match PropertyDescriptor.tryGetValue propertyDescriptor game world with
         | Some value -> value
         | None -> null
 
+    /// Attempt to set the value of the described property for the game.
     let trySetValue (value : obj) propertyDescriptor (game : Game) world =
         
         // pull string quotes out of string
@@ -2970,17 +2957,20 @@ module GamePropertyDescriptor =
             PropertyDescriptor.trySetValue propertyDescriptor value game world |> ignore
             Right ()
 
+/// Simulant PropertyDescriptor functions.
 [<RequireQualifiedAccess>]
 module SimulantPropertyDescriptor =
 
-    let containsPropertyDescriptor propertyDescriptor (simulant : Simulant) world =
+    /// Check that the described property exists for the given simulant.
+    let containsPropertyDescriptor propertyName (simulant : Simulant) world =
         match simulant with
-        | :? Entity as entity -> EntityPropertyDescriptor.containsPropertyDescriptor propertyDescriptor entity world
-        | :? Group as group -> GroupPropertyDescriptor.containsPropertyDescriptor propertyDescriptor group world
-        | :? Screen as screen -> ScreenPropertyDescriptor.containsPropertyDescriptor propertyDescriptor screen world
-        | :? Game as game -> GamePropertyDescriptor.containsPropertyDescriptor propertyDescriptor game world
+        | :? Entity as entity -> EntityPropertyDescriptor.containsPropertyDescriptor propertyName entity world
+        | :? Group as group -> GroupPropertyDescriptor.containsPropertyDescriptor propertyName group world
+        | :? Screen as screen -> ScreenPropertyDescriptor.containsPropertyDescriptor propertyName screen world
+        | :? Game as game -> GamePropertyDescriptor.containsPropertyDescriptor propertyName game world
         | _ -> failwithumf ()
 
+    /// Get the property descriptors for the given simulant.
     let getPropertyDescriptors (simulant : Simulant) world =
         match simulant with
         | :? Entity as entity -> EntityPropertyDescriptor.getPropertyDescriptors entity world
@@ -2989,6 +2979,7 @@ module SimulantPropertyDescriptor =
         | :? Game as game -> GamePropertyDescriptor.getPropertyDescriptors game world
         | _ -> failwithumf ()
 
+    /// Get the editor category of the described property.
     let getCategory propertyDesciptor (simulant : Simulant) =
         match simulant with
         | :? Entity -> EntityPropertyDescriptor.getCategory propertyDesciptor
@@ -2997,6 +2988,7 @@ module SimulantPropertyDescriptor =
         | :? Game -> GamePropertyDescriptor.getCategory propertyDesciptor
         | _ -> failwithumf ()
 
+    /// Get whether the described property is editable.
     let getEditable propertyDesciptor (simulant : Simulant) =
         match simulant with
         | :? Entity -> EntityPropertyDescriptor.getEditable propertyDesciptor
@@ -3005,6 +2997,7 @@ module SimulantPropertyDescriptor =
         | :? Game -> GamePropertyDescriptor.getEditable propertyDesciptor
         | _ -> failwithumf ()
 
+    /// Get the value of the described property for the given simulant.
     let getValue propertyDescriptor (simulant : Simulant) world =
         match simulant with
         | :? Entity as entity -> EntityPropertyDescriptor.getValue propertyDescriptor entity world
@@ -3013,6 +3006,7 @@ module SimulantPropertyDescriptor =
         | :? Game as game -> GamePropertyDescriptor.getValue propertyDescriptor game world
         | _ -> failwithumf ()
 
+    /// Attempt to set the value of the described property for the given simulant.
     let trySetValue value propertyDescriptor (simulant : Simulant) world =
         match simulant with
         | :? Entity as entity -> EntityPropertyDescriptor.trySetValue value propertyDescriptor entity world
@@ -3021,8 +3015,9 @@ module SimulantPropertyDescriptor =
         | :? Game as game -> GamePropertyDescriptor.trySetValue value propertyDescriptor game world
         | _ -> failwithumf ()
 
+/// Universal function definitions for the world (3/4).
 [<AutoOpen>]
-module WorldModule2' =
+module WorldModule3 =
 
     type World with
 

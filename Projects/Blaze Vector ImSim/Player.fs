@@ -24,6 +24,7 @@ type PlayerDispatcher () =
 
     static member Properties =
         [define Entity.Size (v3 24.0f 48.0f 0.0f)
+         define Entity.MountOpt None
          define Entity.BodyType Dynamic
          define Entity.BodyShape (CapsuleShape { Height = 0.5f; Radius = 0.25f; TransformOpt = None; PropertiesOpt = None })
          define Entity.Friction 0.0f
@@ -67,7 +68,7 @@ type PlayerDispatcher () =
             World.playSound Constants.Audio.SoundVolumeDefault Assets.Gameplay.ShotSound world
 
         // process jumping
-        if  world.Advancing && 
+        if  world.Advancing &&
             world.UpdateTime >= entity.GetLastTimeJump world + 12L &&
             world.UpdateTime <= entity.GetLastTimeGrounded world + 10L &&
             World.isKeyboardKeyPressed KeyboardKey.Space world then

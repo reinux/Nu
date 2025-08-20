@@ -15,32 +15,46 @@ open Prime
 /// TODO: name all these abstract method parameters.
 type RendererProcess =
     interface
+        
         /// Start the rendering process.
         abstract Start : ImFontAtlasPtr -> Window option -> Viewport -> Viewport -> Viewport -> unit
+        
         /// The current configuration of the 3d renderer.
         abstract Renderer3dConfig : Renderer3dConfig
+        
         /// Attempt to get a texture id that can be used to visually represent the specified asset.
         abstract TryGetImGuiTextureId : AssetTag -> uint32 voption
+        
         /// Enqueue a 3d rendering message.
         abstract EnqueueMessage3d : RenderMessage3d -> unit
+        
         /// Potential fast-path for rendering static models.
-        abstract RenderStaticModelFast : Matrix4x4 inref * bool * Presence * Box2 voption * MaterialProperties inref * StaticModel AssetTag * DepthTest * RenderType * RenderPass -> unit
+        abstract RenderStaticModelFast : Matrix4x4 inref * bool * Presence * Box2 voption * MaterialProperties inref * StaticModel AssetTag * bool * DepthTest * RenderType * RenderPass -> unit
+        
         /// Potential fast-path for rendering static model surfaces.
         abstract RenderStaticModelSurfaceFast : Matrix4x4 inref * bool * Presence * Box2 voption * MaterialProperties inref * Material inref * StaticModel AssetTag * int * DepthTest * RenderType * RenderPass -> unit
+        
         /// Potential fast-path for rendering animated models.
         abstract RenderAnimatedModelFast : Matrix4x4 inref * bool * Presence * Box2 voption * MaterialProperties inref * Matrix4x4 array * AnimatedModel AssetTag * Map<int, single> * int Set * DepthTest * RenderType * RenderPass -> unit
+        
         /// Enqueue a 2d rendering message.
         abstract EnqueueMessage2d : RenderMessage2d -> unit
+        
         /// Potential fast-path for rendering layered sprite.
         abstract RenderLayeredSpriteFast : single * single * AssetTag * Transform inref * Box2 ValueOption inref * Box2 ValueOption inref * Image AssetTag * Color inref * Blend * Color inref * Flip -> unit
+        
         /// Enqueue an ImGui rendering message.
         abstract EnqueueMessageImGui : RenderMessageImGui -> unit
+        
         /// Clear enqueued render messages.
         abstract ClearMessages : unit -> unit
+        
         /// Submit enqueued render messages for processing.
         abstract SubmitMessages : Frustum -> Frustum -> Frustum -> Box3 -> Vector3 -> Quaternion -> single -> Vector2 -> Vector2 -> Vector2i -> Viewport -> Viewport -> Viewport -> ImDrawDataPtr -> unit
+        
         /// Request to swap the underlying render buffer.
-        abstract Swap : unit -> unit
+        abstract RequestSwap : unit -> unit
+        
         /// Terminate the rendering process, blocking until termination is complete.
         abstract Terminate : unit -> unit
         end
@@ -123,9 +137,9 @@ type RendererInline () =
             | Some _ -> messages3d.Add message 
             | None -> raise (InvalidOperationException "Renderers are not yet or are no longer valid.")
 
-        member ri.RenderStaticModelFast (modelMatrix, castShadow, presence, insetOpt, materialProperties, staticModel, depthTest, renderType, renderPass) =
+        member ri.RenderStaticModelFast (modelMatrix, castShadow, presence, insetOpt, materialProperties, staticModel, clipped, depthTest, renderType, renderPass) =
             match dependenciesOpt with
-            | Some _ -> messages3d.Add (RenderStaticModel { ModelMatrix = modelMatrix; CastShadow = castShadow; Presence = presence; InsetOpt = Option.ofValueOption insetOpt; MaterialProperties = materialProperties; StaticModel = staticModel; DepthTest = depthTest; RenderType = renderType; RenderPass = renderPass })
+            | Some _ -> messages3d.Add (RenderStaticModel { ModelMatrix = modelMatrix; CastShadow = castShadow; Presence = presence; InsetOpt = Option.ofValueOption insetOpt; MaterialProperties = materialProperties; StaticModel = staticModel; Clipped = clipped; DepthTest = depthTest; RenderType = renderType; RenderPass = renderPass })
             | None -> raise (InvalidOperationException "Renderers are not yet or are no longer valid.")
 
         member ri.RenderStaticModelSurfaceFast (modelMatrix, castShadow, presence, insetOpt, materialProperties, material, staticModel, surfaceIndex, depthTest, renderType, renderPass) =
@@ -187,7 +201,7 @@ type RendererInline () =
 
             | None -> ()
 
-        member ri.Swap () =
+        member ri.RequestSwap () =
             match windowOpt with
             | Some (SglWindow window) ->
                 if glFinishRequired then OpenGL.Gl.Finish ()
@@ -197,14 +211,28 @@ type RendererInline () =
         member ri.Terminate () =
             match dependenciesOpt with
             | Some (glContext, renderer3d, renderer2d, rendererImGui) ->
+            
+                // clean up 3d
                 renderer3d.CleanUp ()
+                OpenGL.Hl.Assert ()
+
+                // clean up 2d
                 renderer2d.CleanUp ()
+                OpenGL.Hl.Assert ()
+
+                // clean up imgui
                 rendererImGui.CleanUp ()
+                OpenGL.Hl.Assert ()
+
+                // clean up gl
                 dependenciesOpt <- None
                 match windowOpt with
                 | Some (SglWindow window) -> OpenGL.Hl.DestroySglContext (glContext, window.SglWindow)
                 | None -> ()
+
+                // fin
                 terminated <- true
+
             | None -> ()
 
 /// A threaded render process.
@@ -215,7 +243,7 @@ type RendererThread () =
     let [<VolatileField>] mutable terminated = false
     let [<VolatileField>] mutable submissionOpt = Option<Frustum * Frustum * Frustum * Box3 * RenderMessage3d List * RenderMessage2d List * RenderMessageImGui List * Vector3 * Quaternion * single * Vector2 * Vector2 * Vector2i * Viewport * Viewport * Viewport * ImDrawDataPtr>.None
     let [<VolatileField>] mutable swapRequested = false
-    let [<VolatileField>] mutable swapCompleted = false
+    let [<VolatileField>] mutable swapRequestAcknowledged = false
     let [<VolatileField>] mutable renderer3dConfig = Renderer3dConfig.defaultConfig
     let [<VolatileField>] mutable messageBufferIndex = 0
     let messageBuffers3d = [|List (); List ()|]
@@ -247,6 +275,7 @@ type RendererThread () =
                           CachedStaticModelInsetOpt = Unchecked.defaultof<_>
                           CachedStaticModelMaterialProperties = Unchecked.defaultof<_>
                           CachedStaticModel = Unchecked.defaultof<_>
+                          CachedStaticModelClipped = Unchecked.defaultof<_>
                           CachedStaticModelDepthTest = Unchecked.defaultof<_>
                           CachedStaticModelRenderType = Unchecked.defaultof<_>
                           CachedStaticModelRenderPass = Unchecked.defaultof<_> }
@@ -413,17 +442,26 @@ type RendererThread () =
                     // guard against early termination
                     if not terminated then
 
-                        // notify swap is completed
-                        swapCompleted <- true
+                        // acknowledge swap request
+                        swapRequestAcknowledged <- true
 
                         // swap, optionally finishing
                         if glFinishRequired then OpenGL.Gl.Finish ()
                         match window with SglWindow window -> SDL.SDL_GL_SwapWindow window.SglWindow
 
-        // clean up
+        // clean up 3d
         renderer3d.CleanUp ()
+        OpenGL.Hl.Assert ()
+
+        // clean up 2d
         renderer2d.CleanUp ()
+        OpenGL.Hl.Assert ()
+
+        // clean up imgui
         rendererImGui.CleanUp ()
+        OpenGL.Hl.Assert ()
+
+        // clean up gl
         OpenGL.Hl.DestroySglContext (glContext, match window with SglWindow window -> window.SglWindow)
 
     interface RendererProcess with
@@ -455,7 +493,7 @@ type RendererThread () =
                             while not swapRequested && not terminated do ()
                             swapRequested <- false
                             if not terminated then
-                                swapCompleted <- true))
+                                swapRequestAcknowledged <- true))
                 threadOpt <- Some thread
                 thread.IsBackground <- true
                 thread.Start ()
@@ -485,6 +523,8 @@ type RendererThread () =
                     cachedMessage.CachedStaticModelInsetOpt <- ValueOption.ofOption rsm.InsetOpt
                     cachedMessage.CachedStaticModelMaterialProperties <- rsm.MaterialProperties
                     cachedMessage.CachedStaticModel <- rsm.StaticModel
+                    cachedMessage.CachedStaticModelClipped <- rsm.Clipped
+                    cachedMessage.CachedStaticModelDepthTest <- rsm.DepthTest
                     cachedMessage.CachedStaticModelRenderType <- rsm.RenderType
                     cachedMessage.CachedStaticModelRenderPass <- rsm.RenderPass
                     messageBuffers3d.[messageBufferIndex].Add cachedStaticModelMessage
@@ -501,6 +541,7 @@ type RendererThread () =
                     cachedMessage.CachedStaticModelSurfaceMaterial <- rsms.Material
                     cachedMessage.CachedStaticModelSurfaceModel <- rsms.StaticModel
                     cachedMessage.CachedStaticModelSurfaceIndex <- rsms.SurfaceIndex
+                    cachedMessage.CachedStaticModelSurfaceDepthTest <- rsms.DepthTest
                     cachedMessage.CachedStaticModelSurfaceRenderType <- rsms.RenderType
                     cachedMessage.CachedStaticModelSurfaceRenderPass <- rsms.RenderPass
                     messageBuffers3d.[messageBufferIndex].Add cachedStaticModelSurfaceMessage
@@ -522,7 +563,7 @@ type RendererThread () =
                 | _ -> failwithumf ()
             | _ -> messageBuffers3d.[messageBufferIndex].Add message
 
-        member rt.RenderStaticModelFast (modelMatrix, castShadow, presence, insetOpt, materialProperties, staticModel, depthTest, renderType, renderPass) =
+        member rt.RenderStaticModelFast (modelMatrix, castShadow, presence, insetOpt, materialProperties, staticModel, clipped, depthTest, renderType, renderPass) =
             if Option.isNone threadOpt then raise (InvalidOperationException "Render process not yet started or already terminated.")
             let cachedStaticModelMessage = allocStaticModelMessage ()
             match cachedStaticModelMessage with
@@ -533,6 +574,7 @@ type RendererThread () =
                 cachedMessage.CachedStaticModelInsetOpt <- insetOpt
                 cachedMessage.CachedStaticModelMaterialProperties <- materialProperties
                 cachedMessage.CachedStaticModel <- staticModel
+                cachedMessage.CachedStaticModelClipped <- clipped
                 cachedMessage.CachedStaticModelDepthTest <- depthTest
                 cachedMessage.CachedStaticModelRenderType <- renderType
                 cachedMessage.CachedStaticModelRenderPass <- renderPass
@@ -648,11 +690,11 @@ type RendererThread () =
             messageBuffersImGui.[messageBufferIndex].Clear ()
             submissionOpt <- Some (frustumInterior, frustumExterior, frustumImposter, lightBox, messages3d, messages2d, messagesImGui, eye3dCenter, eye3dRotation, eye3dFieldOfView, eye2dCenter, eye2dSize, eyeMargin, geometryViewport, rasterViewport, outerViewport, drawData)
 
-        member rt.Swap () =
+        member rt.RequestSwap () =
             if Option.isNone threadOpt then raise (InvalidOperationException "Render process not yet started or already terminated.")
             swapRequested <- true
-            while not swapCompleted && not terminated do Thread.Yield () |> ignore<bool>
-            swapCompleted <- false
+            while not swapRequestAcknowledged && not terminated do Thread.Yield () |> ignore<bool>
+            swapRequestAcknowledged <- false
 
         member rt.Terminate () =
             if Option.isNone threadOpt then raise (InvalidOperationException "Render process not yet started or already terminated.")

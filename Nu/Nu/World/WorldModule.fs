@@ -6,6 +6,7 @@ open System
 open System.Reflection
 open Prime
 
+/// Global operators for the world.
 [<AutoOpen>]
 module WorldModuleOperators =
 
@@ -22,6 +23,7 @@ module WorldModuleOperators =
     let relate<'t when 't :> Simulant> (simulant : Simulant) (simulant2 : 't) : 't Relation =
         Relation.relate<Simulant, 't> (itoa simulant.SimulantAddress) (itoa simulant2.SimulantAddress)
 
+/// Universal function definitions for the world (1/4).
 [<AutoOpen>]
 module WorldModule =
 
@@ -29,24 +31,12 @@ module WorldModule =
     /// TODO: P1: consider making this an AmbientState flag.
     let mutable internal UpdatingSimulants = false
 
-    /// Track if we're in the portion of the frame before tasklet processing has started or after.
+    /// Track if we're in the portion of the frame when end-frame processing has started.
     /// TODO: P1: consider making this an AmbientState flag.
-    let mutable internal TaskletProcessingStarted = false
-
-    /// F# reach-around for adding script unsubscriptions to simulants.
-    let mutable internal addSimulantScriptUnsubscription : Unsubscription -> Simulant -> World -> unit =
-        Unchecked.defaultof<_>
-
-    /// F# reach-around for unsubscribing script subscriptions of simulants.
-    let mutable internal unsubscribeSimulantScripts : Simulant -> World -> unit =
-        Unchecked.defaultof<_>
+    let mutable internal EndFrameProcessingStarted = false
 
     /// F# reach-around for checking that a simulant is selected.
     let mutable internal getSelected : Simulant -> World -> bool =
-        Unchecked.defaultof<_>
-
-    /// F# reach-around for checking that a simulant is ignoring bindings.
-    let mutable internal ignorePropertyBindings : Simulant -> World -> bool =
         Unchecked.defaultof<_>
 
     /// F# reach-around for sorting subscriptions by elevation.
@@ -189,9 +179,9 @@ module WorldModule =
         static member getCollectionConfig (world : World) =
             AmbientState.getConfig world.AmbientState
 
-        /// Get the the liveness state of the engine.
-        static member getLiveness (world : World) =
-            AmbientState.getLiveness world.AmbientState
+        /// Get the the aliveness state of the engine.
+        static member getAlive (world : World) =
+            AmbientState.getAlive world.AmbientState
 
         static member internal updateTime world =
             World.mapAmbientState AmbientState.updateTime world
@@ -268,21 +258,16 @@ module WorldModule =
         static member getDeclaredInitializing (world : World) =
             world.DeclaredInitializing
 
-        static member internal setContext context (world : World) =
+        static member internal setContextAndDeclared context declared (world : World) =
             if world.Imperative then
-                world.WorldExtension.DeclaredImSim <- world.WorldExtension.ContextImSim
                 world.WorldExtension.ContextImSim <- context
+                world.WorldExtension.DeclaredImSim <- declared
             else
-                let worldExtension = { world.WorldExtension with DeclaredImSim = world.WorldState.WorldExtension.ContextImSim; ContextImSim = context }
+                let worldExtension = { world.WorldExtension with ContextImSim = context; DeclaredImSim = declared }
                 world.WorldState <- { world.WorldState with WorldExtension = worldExtension }
 
-        static member internal advanceContext declared context (world : World) =
-            if world.Imperative then
-                world.WorldExtension.DeclaredImSim <- declared
-                world.WorldExtension.ContextImSim <- context
-            else
-                let worldExtension = { world.WorldExtension with DeclaredImSim = declared; ContextImSim = context }
-                world.WorldState <- { world.WorldState with WorldExtension = worldExtension }
+        static member internal setContext context (world : World) =
+            World.setContextAndDeclared context world.WorldExtension.ContextImSim world
 
         static member internal getSimulantsImSim (world : World) =
             world.SimulantsImSim
@@ -398,17 +383,51 @@ module WorldModule =
             World.mapAmbientState (AmbientState.addTasklet simulant tasklet) world
 
         /// Schedule an operation to be executed by the engine with the given delay.
+        /// When called in an ImSim Process context, will provide the ImSim simulant context and declared values from
+        /// World that were active in that Process context as well as time and advancement state.
         static member schedule delay operation (simulant : Simulant) (world : World) =
+
+            // compute time at which to schedule the operation
             let time =
                 match delay with
                 | UpdateTime delay -> UpdateTime (world.UpdateTime + delay)
                 | TickTime delay -> TickTime (world.TickTime + delay)
+
+            // restore the ImSim context when we're in an ImSim Process context
+            let operation =
+                let context = world.ContextImSim
+                if context.Names.Length > 0 then
+                    let declared = world.DeclaredImSim
+                    let advancing = world.Advancing
+                    let advancementCleared = world.AdvancementCleared
+                    let updateDelta = world.UpdateDelta
+                    let clockDelta = world.ClockDelta
+                    let tickDelta = world.TickDelta
+                    fun (world : World) ->
+                        let context' = world.ContextImSim
+                        let declared' = world.DeclaredImSim
+                        World.mapAmbientState AmbientState.clearAdvancement world
+                        World.setContextAndDeclared context declared world
+                        operation world
+                        World.setContextAndDeclared context' declared' world
+                        World.mapAmbientState (AmbientState.restoreAdvancement advancing advancementCleared updateDelta clockDelta tickDelta) world
+                else operation
+
+            // add tasklet
             let tasklet = { ScheduledTime = time; ScheduledOp = operation }
             World.addTasklet simulant tasklet world
 
-        /// Schedule an operation to be executed by the engine at the end of the current frame or the next frame if we've already started processing tasklets.
+        /// Schedule an operation to be executed by the engine at the end of the current frame or the next frame if
+        /// we've already started processing tasklets.
+        /// When called in an ImSim Process context, will provide the ImSim simulant context and declared values from
+        /// World that were active in that Process context as well as time and advancement state.
         static member defer operation (simulant : Simulant) (world : World) =
-            let time = if TaskletProcessingStarted && world.Advancing then UpdateTime 1L else UpdateTime 0L
+            let time =
+                if EndFrameProcessingStarted && world.Advancing then
+                    match Constants.GameTime.DesiredFrameRate with
+                    | StaticFrameRate _ -> UpdateTime 1L
+                    | DynamicFrameRate _ -> TickTime 1L
+                else GameTime.zero
             World.schedule time operation simulant world
 
         /// Attempt to get the window flags.
@@ -571,12 +590,13 @@ module WorldModule =
         static member internal cleanUpSubsystems world =
             World.mapSubsystems (fun subsystems ->
                 subsystems.AudioPlayer.CleanUp ()
-                subsystems.RendererPhysics3d.Dispose ()
+                match subsystems.RendererPhysics3dOpt with Some renderer -> renderer.Dispose () | None -> ()
                 subsystems.RendererProcess.Terminate ()
                 subsystems.PhysicsEngine3d.CleanUp ()
                 subsystems.PhysicsEngine2d.CleanUp ()
                 subsystems.ImGui.CleanUp ()
-                subsystems) world
+                subsystems)
+                world
 
     type World with // EventGraph
 
@@ -673,8 +693,7 @@ module WorldModule =
                 let mutable handling = Cascade
                 while going && enr.MoveNext () do
                     let (_, subscriptionEntry) = enr.Current
-                    if  (match handling with Cascade -> true | Resolve -> false) &&
-                        (match World.getLiveness world with Live -> true | Dead -> false) then
+                    if (match handling with Cascade -> true | Resolve -> false) && world.Alive then
                         let subscriber = subscriptionEntry.SubscriptionSubscriber
                         if not selectedOnly || getSelected subscriber world then
                             let namesLength = subscriber.SimulantAddress.Names.Length
